@@ -1,0 +1,78 @@
+import { chromium } from '@playwright/test';
+import { createHost } from '../src/server.js';
+import { mkdtemp, rm, mkdir, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import assert from 'node:assert/strict';
+
+const temp = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-ui-'));
+const host = await createHost({ directory: temp, port: 0, local: true, root: process.cwd(), quiet: true });
+let browser;
+try {
+  let executablePath = process.env.RELAYDECK_BROWSER || chromium.executablePath();
+  if (!existsSync(executablePath) && process.platform === 'win32') {
+    const base = path.join(process.env.LOCALAPPDATA, 'ms-playwright');
+    for (const d of (await readdir(base)).filter(d => /^chromium-\d+$/.test(d)).reverse()) { const p = path.join(base, d, 'chrome-win64', 'chrome.exe'); if (existsSync(p)) { executablePath = p; break; } }
+  }
+  browser = await chromium.launch({ executablePath, headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
+  const errors = []; page.on('pageerror', err => errors.push(err.message));
+  await page.goto(host.address);
+  await page.getByLabel('Access key').fill(host.store.data.adminToken);
+  await page.getByRole('button', { name: 'Open workspace' }).click();
+  await page.getByRole('heading', { name: 'Agent workspace' }).waitFor();
+  await mkdir('docs/screenshots', { recursive: true });
+  await page.screenshot({ path: 'docs/screenshots/workspace-empty.png', fullPage: true });
+  await page.getByRole('button', { name: 'Launch agent', exact: true }).click();
+  await page.getByLabel('Agent name').fill('Terminal smoke test');
+  await page.getByLabel('Harness', { exact: true }).selectOption('Custom');
+  await page.getByLabel('Executable', { exact: false }).fill(process.execPath);
+  await page.getByLabel('Arguments (JSON array)', { exact: false }).fill(JSON.stringify(['-e', "console.log('Relaydeck terminal connected');process.stdin.on('data',d=>console.log('Received: '+d.toString().trim()))"]));
+  await page.getByRole('dialog').getByRole('button', { name: 'Launch agent', exact: true }).click();
+  await page.locator('#terminal-name').filter({ hasText: 'Terminal smoke test' }).waitFor();
+  await page.locator('#terminal-actions .running').waitFor();
+  await page.getByRole('button', { name: 'Connect tools', exact: true }).click();
+  await page.getByLabel('Configuration format').selectOption('hermes');
+  const config = JSON.parse(await page.locator('#bridge-config').textContent());
+  assert.ok(config.mcp_servers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.getByRole('button', { name: 'Set task' }).click();
+  await page.getByLabel('What is this agent working on?').fill('Validating the shared workspace and terminal connection');
+  await page.getByRole('button', { name: 'Save task' }).click();
+  await page.locator('#task-text').filter({ hasText: 'Validating' }).waitFor();
+  await page.getByRole('combobox', { name: 'Conversation', exact: true }).selectOption('team');
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('The first device is connected. Ready to collaborate.');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.locator('#messages').getByText('The first device is connected. Ready to collaborate.').waitFor();
+  await page.screenshot({ path: 'docs/screenshots/workspace.png', fullPage: true });
+  await page.getByRole('button', { name: 'Councils', exact: false }).first().click();
+  await page.getByRole('button', { name: 'Ask the council' }).click();
+  await page.getByLabel('What should the team think through?').fill('How should we coordinate the next milestone?');
+  await page.getByRole('dialog').getByRole('button', { name: 'Ask the council' }).click();
+  await page.getByRole('heading', { name: 'How should we coordinate the next milestone?' }).waitFor();
+  await page.getByRole('button', { name: 'Tool controls', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Enable council', exact: true }).uncheck();
+  await page.waitForFunction(() => !document.querySelector('[data-tool=council]').checked);
+  assert.equal(host.store.data.settings.council, false);
+  await page.getByRole('button', { name: 'Devices', exact: true }).click();
+  await page.getByRole('button', { name: 'Connect device', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Device name', exact: true }).fill('Second device');
+  await page.getByRole('button', { name: 'Create device key' }).click();
+  await page.getByRole('heading', { name: 'Your device is ready to connect' }).waitFor();
+  const clientKey = await page.getByRole('textbox', { name: 'Device key', exact: true }).inputValue();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  const client = await browser.newPage(); await client.goto(host.address);
+  await client.getByLabel('Access key').fill(clientKey); await client.getByRole('button', { name: 'Open workspace' }).click();
+  await client.getByText('Client workspace', { exact: true }).waitFor();
+  await client.getByRole('button', { name: 'Tool controls', exact: true }).click();
+  assert.equal(await client.getByRole('checkbox', { name: 'Enable council', exact: true }).isDisabled(), true);
+  await page.getByRole('button', { name: 'Workspace', exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'docs/screenshots/mobile.png', fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'No horizontal overflow on mobile');
+  assert.deepEqual(errors, [], 'No browser runtime errors');
+  console.log('UI smoke passed: sign in, launch real process, task, notice, council, tool toggle, device pairing, client permissions, and mobile layout.');
+} finally {
+  await browser?.close(); await host.close(); await rm(temp, { recursive: true, force: true });
+}
