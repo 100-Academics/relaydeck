@@ -20,7 +20,11 @@ The host opens at **http://127.0.0.1:4317**. `--gui` opens a browser with a shor
 
 Select **Launch agent**, choose an installed harness, and pick a directory inside the device workspace. The terminal is interactive. Stop or restart the process from its terminal header. Announce a task with **Set task** or the agent's `task` tool.
 
+The GUI starts in dark mode. The sun/moon button in the top-right corner switches themes and remembers your choice in this browser, including on the sign-in screen.
+
 The default workspace root is the directory where the command is run. Change it with `--root`.
+
+Choose a different listening port with `npm start -- --port 4318 --gui` (or `-p 4318`). Use `--port 0` to choose an available port; the host prints the resulting address. Clients must use the same port in `--server`, for example `http://HOST:4318`. Run `npm start -- --help` for all host options. If Relaydeck already owns the requested address, another launch reuses that host and `--gui` opens it. If another application owns the port, startup explains how to choose a different one.
 
 ## Host and client modes
 

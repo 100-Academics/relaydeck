@@ -11,8 +11,20 @@ import { migrateWorkspace } from './migration.js';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false } = {}) {
-  await migrateWorkspace(directory, path.resolve(directory) === path.join(project, '.relaydeck') ? path.join(project, '.amoeba') : directory);
-  const store = new Store(directory), app = express(), server = createServer(app);
+  fail(Number.isInteger(port) && port >= 0 && port <= 65535, 'Port must be an integer between 0 and 65535 (0 chooses an available port).');
+  const app = express(), server = createServer(app);
+  let ready = false, store;
+  app.use((req, res, next) => ready ? next() : res.status(503).json({ error: 'Relaydeck is starting. Try again shortly.' }));
+  // Reserve the listener before opening storage: a duplicate start must never
+  // reset the running workspace's persisted connection state.
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, () => { server.removeListener('error', reject); resolve(); });
+  });
+  try {
+    await migrateWorkspace(directory, path.resolve(directory) === path.join(project, '.relaydeck') ? path.join(project, '.amoeba') : directory);
+    store = new Store(directory);
+  } catch (error) { await new Promise(resolve => server.close(resolve)); throw error; }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const runners = new Map(), browsers = new Map(), buffers = new Map(), sessions = new Map(), pending = new Map(), tickets = new Map(), attempts = new Map();
   let localRunner, closing = false;
@@ -188,8 +200,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     });
   });
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) ws.terminate(); else { ws.alive = false; ws.ping(); } } }, 15000);
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, resolve); });
-  const address = `http://127.0.0.1:${server.address().port}`;
+  const address = hostAddress(host, server.address().port);
+  ready = true;
   if (local) {
     mkdirSync(directory, { recursive: true }); const file = path.join(directory, 'local-device.key');
     let token = existsSync(file) ? readFileSync(file, 'utf8').trim() : '';
@@ -205,10 +217,40 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     await new Promise(resolve => server.close(resolve)); wss.close(); store.close();
   } };
 }
+function hostAddress(host, port) {
+  const name = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
+  return `http://${name.includes(':') ? `[${name}]` : name}:${port}`;
+}
+export async function launchHost(config, { log = console.log, open = openBrowser } = {}) {
+  try {
+    const instance = await createHost(config);
+    if (config.gui && !config.headless) open(`${instance.address}/#ticket=${instance.ticket()}`);
+    return instance;
+  } catch (error) {
+    if (error.code !== 'EADDRINUSE') throw error;
+    const address = hostAddress(config.host || '127.0.0.1', config.port ?? 4317);
+    let existing = false;
+    try {
+      const response = await fetch(`${address}/api/health`, { signal: AbortSignal.timeout(2000), redirect: 'error' });
+      const health = await response.json(); existing = response.ok && health.name === 'Relaydeck' && health.status === 'ok';
+    } catch {}
+    if (!existing) throw new Error(`Port ${config.port ?? 4317} is already in use by another application. Choose another port, for example: npm start -- --port 4318`);
+    log(`Relaydeck is already running at ${address}. Using the existing host; no second host was started.`);
+    if (config.gui && !config.headless) open(address);
+    return null;
+  }
+}
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const args = options({ host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '4317' }, root: { type: 'string', default: process.cwd() }, data: { type: 'string', default: path.join(project, '.relaydeck') }, 'no-local': { type: 'boolean', default: false } });
-  const instance = await createHost({ directory: args.data, port: Number(args.port), host: args.host, root: args.root, local: !args['no-local'] });
-  if (args.gui && !args.headless) openBrowser(`${instance.address}/#ticket=${instance.ticket()}`);
-  let closing = false;
-  for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { if (closing) return; closing = true; await instance.close(); process.exit(0); });
+  try {
+    const args = options({ help: { type: 'boolean', short: 'h' }, host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', short: 'p', default: '4317' }, root: { type: 'string', default: process.cwd() }, data: { type: 'string', default: path.join(project, '.relaydeck') }, 'no-local': { type: 'boolean', default: false } });
+    if (args.help) {
+      console.log(`Relaydeck host\n\nUsage: npm start -- [options]\n\n  --port, -p <number>  Listening port (default: 4317; 0 picks an available port)\n  --host <address>    Bind address (default: 127.0.0.1)\n  --gui               Open the browser GUI\n  --headless          Run without opening a browser\n  --root <directory>  Local harness workspace (default: current directory)\n  --data <directory>  Persistent workspace data directory\n  --no-local          Run only the coordination server\n  --help, -h          Show this help\n\nExample: npm start -- --port 4318 --gui`);
+    } else {
+      const instance = await launchHost({ directory: args.data, port: Number(args.port), host: args.host, root: args.root, local: !args['no-local'], gui: args.gui, headless: args.headless });
+      if (instance) {
+        let closing = false;
+        for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { if (closing) return; closing = true; await instance.close(); process.exit(0); });
+      }
+    }
+  } catch (error) { console.error(`Relaydeck: ${error.message}`); process.exitCode = 1; }
 }

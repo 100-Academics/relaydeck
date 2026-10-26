@@ -1,10 +1,11 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { createIcons, Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, X } from 'lucide';
+import { createIcons, Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X } from 'lucide';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
+import './dark.css';
 
-const icons = { Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, X };
+const icons = { Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X };
 const app = document.querySelector('#app'), dialog = document.querySelector('#dialog');
 let state, page = 'workspace', selected, channel = 'team', ws, terminal, fit, resizeObserver, retry, loggedOut = false;
 let connected = false, modalCleanup;
@@ -35,12 +36,22 @@ function modal(title, body, onSubmit) {
   }; paintIcons(); if (!dialog.open) dialog.showModal();
 }
 const field = (label, content, hint = '') => `<label class="field"><span>${label}</span>${content.includes('aria-label=') ? content : content.replace(/<(input|select|textarea)/, `<$1 aria-label="${e(label)}"`)}${hint ? `<small>${hint}</small>` : ''}</label>`;
+function themeButton() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  return `<button class="theme-toggle" data-action="theme" aria-label="Switch to ${dark ? 'light' : 'dark'} mode" title="Switch to ${dark ? 'light' : 'dark'} mode">${icon(dark ? 'sun' : 'moon')}</button>`;
+}
+function refreshThemeButtons() {
+  document.querySelectorAll('[data-action=theme]').forEach(el => { el.outerHTML = themeButton(); });
+  if (terminal) terminal.options.theme = { ...terminal.options.theme, background: document.documentElement.dataset.theme === 'dark' ? '#0c131e' : '#182536' };
+  paintIcons();
+}
+window.addEventListener('relaydeck-theme-change', refreshThemeButtons);
 function login() {
-  app.innerHTML = `<main class="login"><div class="login-art"><img src="/relaydeck.svg" alt=""/><h1>A place for<br>your agents<br>to work together.</h1><p>Any harness. Every device.<br>One shared workspace.</p><div class="login-diagram"><span>${icon('terminal-square')} Hermes</span><b>+</b><span>${icon('terminal-square')} OpenCode</span><b>+</b><span>${icon('laptop')} Your tools</span></div></div><section class="login-form"><div class="brand"><img src="/relaydeck.svg" alt=""/>relaydeck</div><h2>Join your workspace</h2><p>Use your host key or the device key provided by your host.</p><form id="login-form">${field('Access key', '<input name="token" type="password" required autocomplete="current-password" placeholder="Paste your access key"/>')}<button class="primary" type="submit">Open workspace ${icon('arrow-up-right')}</button><p class="form-error" id="login-error" role="alert"></p></form><p class="quiet">The host key appears in the host terminal.<br>Client keys are created in Devices.</p></section></main>`;
+  app.innerHTML = `<div class="login-theme">${themeButton()}</div><main class="login"><div class="login-art"><img src="/relaydeck.svg" alt=""/><h1>A place for<br>your agents<br>to work together.</h1><p>Any harness. Every device.<br>One shared workspace.</p><div class="login-diagram"><span>${icon('terminal-square')} Hermes</span><b>+</b><span>${icon('terminal-square')} OpenCode</span><b>+</b><span>${icon('laptop')} Your tools</span></div></div><section class="login-form"><div class="brand"><img src="/relaydeck.svg" alt=""/>relaydeck</div><h2>Join your workspace</h2><p>Use your host key or the device key provided by your host.</p><form id="login-form">${field('Access key', '<input name="token" type="password" required autocomplete="current-password" placeholder="Paste your access key"/>')}<button class="primary" type="submit">Open workspace ${icon('arrow-up-right')}</button><p class="form-error" id="login-error" role="alert"></p></form><p class="quiet">The host key appears in the host terminal.<br>Client keys are created in Devices.</p></section></main>`;
   paintIcons(); document.querySelector('#login-form').onsubmit = async ev => { ev.preventDefault(); try { await api('/login', Object.fromEntries(new FormData(ev.target))); loggedOut = false; await boot(); } catch (err) { document.querySelector('#login-error').textContent = err.message; } };
 }
 function skeleton() {
-  app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Relaydeck home"><img src="/relaydeck.svg" alt=""/>relaydeck<span>shell</span></a><div class="workspace-label">${icon('network')} Shared workspace</div><nav aria-label="Main navigation">${[['workspace', 'Workspace', 'terminal-square'], ['councils', 'Councils', 'users'], ['devices', 'Devices', 'monitor'], ['sync', 'Repository sync', 'git-branch'], ['settings', 'Tool controls', 'settings-2']].map(([id, label, i]) => `<button data-page="${id}">${icon(i)}${label}<span id="nav-${id}"></span></button>`).join('')}</nav><div class="rail-heading">Agents ${button('launch', '', 'plus', 'icon-button')}</div><div id="roster" class="roster"></div><div class="sidebar-bottom"><div class="role-icon">${icon('shield-check')}</div><div><strong>${state.viewer.role === 'admin' ? 'Host workspace' : 'Client workspace'}</strong><small>${e(state.viewer.name)}</small></div>${button('logout', '', 'log-out', 'icon-button')}</div></aside><main class="main"><header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div id="connection" class="connection"></div></header><div id="content"></div><footer><span>Relaydeck <span class="footer-dot">•</span> Your harnesses, connected.</span>${button('help', 'Connection guide', 'circle-help', 'text-button')}</footer></main></div>`;
+  app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Relaydeck home"><img src="/relaydeck.svg" alt=""/>relaydeck<span>shell</span></a><div class="workspace-label">${icon('network')} Shared workspace</div><nav aria-label="Main navigation">${[['workspace', 'Workspace', 'terminal-square'], ['councils', 'Councils', 'users'], ['devices', 'Devices', 'monitor'], ['sync', 'Repository sync', 'git-branch'], ['settings', 'Tool controls', 'settings-2']].map(([id, label, i]) => `<button data-page="${id}">${icon(i)}${label}<span id="nav-${id}"></span></button>`).join('')}</nav><div class="rail-heading">Agents ${button('launch', '', 'plus', 'icon-button')}</div><div id="roster" class="roster"></div><div class="sidebar-bottom"><div class="role-icon">${icon('shield-check')}</div><div><strong>${state.viewer.role === 'admin' ? 'Host workspace' : 'Client workspace'}</strong><small>${e(state.viewer.name)}</small></div>${button('logout', '', 'log-out', 'icon-button')}</div></aside><main class="main"><header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-tools"><div id="connection" class="connection"></div>${themeButton()}</div></header><div id="content"></div><footer><span>Relaydeck <span class="footer-dot">•</span> Your harnesses, connected.</span>${button('help', 'Connection guide', 'circle-help', 'text-button')}</footer></main></div>`;
   render();
 }
 function roster() {
@@ -115,7 +126,7 @@ function render() {
   paintIcons();
 }
 function mountTerminal() {
-  terminal = new Terminal({ cursorBlink: true, fontFamily: '"Cascadia Code", "Consolas", monospace', fontSize: 13, lineHeight: 1.25, theme: { background: '#182536', foreground: '#dce5ef', cursor: '#9baeff', selectionBackground: '#3b527a' }, scrollback: 4000, disableStdin: !controlled(agent()) });
+  terminal = new Terminal({ cursorBlink: true, fontFamily: '"Cascadia Code", "Consolas", monospace', fontSize: 13, lineHeight: 1.25, theme: { background: document.documentElement.dataset.theme === 'dark' ? '#0c131e' : '#182536', foreground: '#dce5ef', cursor: '#9baeff', selectionBackground: '#3b527a' }, scrollback: 4000, disableStdin: !controlled(agent()) });
   fit = new FitAddon(); terminal.loadAddon(fit); terminal.open(document.querySelector('#terminal')); terminal.onData(data => ws?.readyState === 1 && ws.send(JSON.stringify({ type: 'input', agentId: selected, data })));
   resizeObserver = new ResizeObserver(() => { try { fit.fit(); if (ws?.readyState === 1 && controlled(agent())) ws.send(JSON.stringify({ type: 'resize', agentId: selected, cols: terminal.cols, rows: terminal.rows })); } catch {} });
   resizeObserver.observe(document.querySelector('#terminal')); if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'subscribe', agentId: selected }));
@@ -150,6 +161,7 @@ function launch(deviceId) {
   dialog.querySelector('[name=deviceId]').onchange = ev => { dialog.querySelector('[name=cwd]').value = device(ev.target.value)?.root || ''; };
 }
 const actions = {
+  theme() { window.RelaydeckTheme.set(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); },
   launch: () => launch(), close: () => dialog.close(),
   async logout() { await api('/logout', {}); loggedOut = true; ws?.close(); teardownTerminal(); state = null; login(); },
   async stop() { await api(`/agents/${selected}/stop`, {}); toast('Stop requested.'); },
