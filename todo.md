@@ -18,4 +18,8 @@ This should be a shell for agent harnesses: users run Hermes, OpenCode, or other
 - [x] Shared communication across harnesses and devices.
 - [x] Host and clients each support GUI and headless operation.
 
-Harnesses need the bridge configured to receive messages as model context. Arbitrary terminal programs do not provide a universal context-injection API. See README.md for setup, delivery behavior, and deployment verification limits.
+- [x] Bundled agent chat skill with automatic startup guidance for supported harnesses.
+- [x] Edit startup commands and instructions for existing agents from host and client GUIs.
+- [x] Agents discover rooms and read recent conversation through bridge tools.
+
+Supported harnesses receive instructions to use the authenticated CLI bridge; MCP configuration is optional. Custom harnesses can use the provided skill manually. Arbitrary terminal programs do not provide a universal context-injection API. See README.md for setup, delivery behavior, and deployment verification limits.

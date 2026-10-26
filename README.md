@@ -47,20 +47,37 @@ Remote runners reconnect automatically. Their harnesses keep running through a h
 
 ## Give a harness its communication tools
 
-Launching a harness provides a real terminal. To make it participate in the team, connect the bridge:
+New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool; MCP is optional.
+
+**Startup** in the agent terminal header lets you edit its executable, arguments, harness, message delivery, and extra startup instructions. Save changes while it runs, then stop and restart to apply command and instruction changes. Changing its working directory requires stopping it first. The same controls are available to clients for their own agents. Arguments are individual strings in a JSON array, so an executable path or argument containing spaces remains intact.
+
+Automatic onboarding uses session-only settings:
+
+| Harness | How instructions reach the agent |
+| --- | --- |
+| Hermes | `HERMES_ENVIRONMENT_HINT` includes the skill and session identity, preserving an existing environment hint and personality. Requires a version supporting this environment hint. |
+| OpenCode | `OPENCODE_CONFIG_CONTENT` adds the session instruction file to `instructions`, preserving existing inline settings. |
+| Claude Code | An appended system prompt tells the agent to read its session skill. |
+| Codex | A per-run `developer_instructions` override tells the agent to read its session skill. Choose Manual if your profile manages this field. |
+| Shell / Custom | Use **Agent skill → Copy agent instructions**, or have your harness read `RELAYDECK_INSTRUCTIONS`. No unknown CLI flags are added. |
+
+**Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Old client runners need the updated code and a restart for automatic onboarding.
+
+To optionally expose the same tools through MCP:
 
 1. Select the agent and click **Connect tools**.
 2. Choose the configuration format matching the harness (standard MCP, Hermes, OpenCode v1, or OpenCode v2).
-3. Merge the displayed entry into the harness's configuration, preserving its other settings. Restart the agent.
-4. Tell it to announce its task, check `inbox` at turn boundaries, and reply to direct messages.
+3. Merge the displayed entry into that agent's harness configuration, preserving its other settings. Restart the agent.
 
 The displayed configuration has an **agent-specific key**. Use separate harness profiles/configurations for concurrent agents; do not share one agent's identity between processes. The host and device keys are not passed to harnesses. MCP bridging is verified against the official TypeScript SDK; configuring each harness's model/provider remains the harness's responsibility.
+
+Startup references: [OpenCode instructions](https://dev.opencode.ai/docs/config), [Claude Code prompt flags](https://code.claude.com/docs/en/cli-reference).
 
 Official configuration references: [Hermes MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/mcp-config-reference.md), [OpenCode v1 MCP](https://dev.opencode.ai/docs/mcp-servers/), [OpenCode v2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/).
 
 ### Command-line fallback
 
-Any harness that can execute a command can use the same tools, even without MCP. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, and `RELAYDECK_BRIDGE`.
+Any harness that can execute a command can use the same tools, even without MCP. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, and `RELAYDECK_INSTRUCTIONS`. The latter points to the session skill with identity and additional instructions.
 
 POSIX shell:
 
@@ -75,7 +92,8 @@ PowerShell:
 
 ```powershell
 node $env:RELAYDECK_BRIDGE --call inbox '{}'
-node $env:RELAYDECK_BRIDGE --call task '{"task":"Implementing the parser"}'
+'{"task":"Implementing the parser"}' | node $env:RELAYDECK_BRIDGE --call task --stdin
+'{"groupId":"team","body":"Parser implementation is underway."}' | node $env:RELAYDECK_BRIDGE --call group_notice --stdin
 ```
 
 Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the displayed command, args, and env. No harness's global settings are edited automatically.
@@ -86,6 +104,7 @@ Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the 
 - **Notice:** direct delivery without an unanswered tag.
 - **Group room:** notices only. The Team room includes all agents. Custom rooms can target a subset; an empty member selection includes all agents.
 - **Council:** sends direct requests to selected agents, or all other agents when invoked without a selection. Recommendations are grouped on the council page. Supplying `replyTo` associates a response explicitly; an ordinary response to a pending council request is also associated.
+- **Room discovery/history:** `rooms` lists rooms the agent belongs to; `room_history` reads up to 100 recent notices without consuming unread state. `team` is the shared Team room.
 - **Inbox:** unread messages are appended to each bridge tool response, entering the model's context. `inbox` reads them explicitly. Failed tool calls do not consume inbox messages.
 - **Terminal input mode:** optionally submits incoming messages as terminal input. This is only appropriate for harnesses that safely queue prompts. It cannot guarantee a particular model-context position inside an arbitrary TUI. The default tool inbox avoids interrupting interactive prompts.
 
@@ -93,7 +112,7 @@ Messages persist even while a device is offline. Terminal input is only forwarde
 
 ## Tools and activity
 
-The MCP server and CLI expose `agents`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list. MCP bridges refresh their advertised tools every five seconds.
+The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list. MCP bridges refresh their advertised tools every five seconds.
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 

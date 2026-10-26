@@ -11,7 +11,7 @@ export const equal = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export const tools = ['agents', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
+export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
 export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
@@ -26,6 +26,7 @@ export class Store {
       messages: [], activity: [], councils: [], settings: Object.fromEntries(tools.map(t => [t, true])),
     };
     for (const d of this.data.devices) d.online = false;
+    for (const tool of tools) this.data.settings[tool] ??= true;
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
     this.save();
   }
@@ -65,14 +66,31 @@ export class Store {
     const d = this.data.devices.find(d => d.id === input.deviceId);
     fail(d?.online, 'Choose a connected device.');
     fail(actor.role === 'admin' || actor.role === 'device' && actor.id === d.id, 'You can only launch agents on your own device.', 403);
-    fail(Array.isArray(input.args) && input.args.length <= 100 && input.args.every(a => typeof a === 'string' && a.length < 10000), 'Arguments must be a JSON array of strings.');
+    const startup = this.startup(input);
     const agentId = id(), token = this.agentToken(agentId);
-    const a = { id: agentId, name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80),
-      command: str(input.command, 'Command', 1024), args: input.args, cwd: str(input.cwd, 'Working directory', 2000),
-      deviceId: d.id, delivery: input.delivery === 'terminal' ? 'terminal' : 'inbox', status: 'starting', task: '',
+    const a = { id: agentId, ...startup,
+      deviceId: d.id, status: 'starting', task: '',
       tokenHash: hash(token), createdAt: new Date().toISOString() };
     this.data.agents.push(a); this.activity(actor.id, 'launch', `Started ${a.name} using ${a.harness}`); this.save();
     return { agent: a, token };
+  }
+  startup(input) {
+    fail(Array.isArray(input.args) && input.args.length <= 100 && input.args.every(a => typeof a === 'string' && a.length < 10000 && !a.includes('\0')), 'Arguments must be a JSON array of strings.');
+    fail(input.onboarding === undefined || ['auto', 'manual'].includes(input.onboarding), 'Choose automatic or manual room instructions.');
+    fail(input.startupInstructions === undefined || typeof input.startupInstructions === 'string' && input.startupInstructions.length <= 12000, 'Startup instructions must be text up to 12,000 characters.');
+    fail(input.delivery === undefined || ['inbox', 'terminal'].includes(input.delivery), 'Choose a valid message delivery mode.');
+    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '' };
+  }
+  updateAgent(actor, agentId, input) {
+    const a = this.data.agents.find(a => a.id === agentId);
+    fail(a, 'Agent not found.', 404); fail(this.canControl(actor, a), 'You can only control agents on your own device.', 403);
+    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions'];
+    fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
+    const next = this.startup({ ...a, ...input });
+    fail(next.cwd === a.cwd || ['stopped', 'error'].includes(a.status), 'Stop the agent before changing its working directory.');
+    Object.assign(a, next);
+    this.activity(actor.id, 'startup', `Updated startup settings for ${a.name}; command changes apply on next launch`); this.save();
+    return a;
   }
   unread(agentId) { return this.data.messages.filter(m => m.recipients.includes(agentId) && !m.readBy.includes(agentId)); }
   send(actor, input) {
@@ -113,6 +131,15 @@ export class Store {
     fail(this.data.settings[name], `The host has disabled ${name}.`, 403);
     let result;
     if (name === 'agents') result = this.snapshot(actor).agents;
+    else if (name === 'rooms') result = this.data.groups.filter(g => actor.role !== 'agent' || !g.members.length || g.members.includes(actor.id));
+    else if (name === 'room_history') {
+      const g = this.data.groups.find(g => g.id === (input.groupId || 'team'));
+      fail(g, 'Group not found.', 404);
+      fail(actor.role !== 'agent' || !g.members.length || g.members.includes(actor.id), 'You are not a member of this group.', 403);
+      const limit = input.limit ?? 30;
+      fail(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'History limit must be between 1 and 100.');
+      result = this.data.messages.filter(m => m.groupId === g.id).slice(-limit);
+    }
     else if (name === 'task') {
       const a = this.data.agents.find(a => a.id === (actor.role === 'agent' ? actor.id : input.agentId));
       fail(a, 'Agent not found.', 404); fail(actor.role === 'agent' || this.canControl(actor, a), 'Not allowed.', 403);
@@ -136,7 +163,7 @@ export class Store {
     } else fail(false, 'Sync must be dispatched to a device.');
     this.save();
     // Every agent tool response carries new messages into its model context.
-    const inbox = actor.role === 'agent' && name !== 'inbox' && this.data.settings.inbox ? [...this.unread(actor.id)] : [];
+    const inbox = actor.role === 'agent' && !['inbox', 'room_history'].includes(name) && this.data.settings.inbox ? [...this.unread(actor.id)] : [];
     for (const m of inbox) m.readBy.push(actor.id);
     this.save(); return { result, inbox };
   }

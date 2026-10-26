@@ -8,6 +8,7 @@ import { Store, id, secret, fail, str, tools } from './store.js';
 import { startRunner } from './runner.js';
 import { options, openBrowser } from './runtime.js';
 import { migrateWorkspace } from './migration.js';
+import { agentInstructions } from './onboarding.js';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false } = {}) {
@@ -87,6 +88,13 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   app.post('/api/agents/:id/stop', human, (req, res) => {
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');
     runners.get(a.deviceId).send(JSON.stringify({ type: 'stop', agentId: a.id })); res.json({ ok: true });
+  });
+  app.patch('/api/agents/:id', human, (req, res) => {
+    const a = store.updateAgent(req.actor, req.params.id, req.body);
+    broadcast(); res.json({ ...a, tokenHash: undefined });
+  });
+  app.get('/api/agents/:id/instructions', human, async (req, res) => {
+    res.json({ instructions: await agentInstructions(controlled(req)) });
   });
   app.post('/api/agents/:id/restart', human, (req, res) => {
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');

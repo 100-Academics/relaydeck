@@ -19,6 +19,20 @@ test('reading does not answer a message; a return notice does', t => {
   assert.equal(store.tool(b.actor, 'inbox').result.length, 1); assert.equal(m.answeredAt, null);
   store.tool(b.actor, 'notice', { to: a.agent.id, body: 'Reviewed.' }); assert.ok(m.answeredAt);
 });
+test('agents discover accessible rooms and read bounded history without consuming unread notices', t => {
+  const { store, a, b, host } = fixture(t);
+  store.data.groups.push({ id: 'private', name: 'Private room', members: [b.agent.id] });
+  assert.deepEqual(store.tool(a.actor, 'rooms').result.map(g => g.id), ['team']);
+  assert.deepEqual(store.tool(b.actor, 'rooms').result.map(g => g.id), ['team', 'private']);
+  store.tool(host, 'group_notice', { body: 'Earlier update' });
+  store.tool(host, 'group_notice', { body: 'Latest update' });
+  assert.equal(store.tool(a.actor, 'room_history', { limit: 1 }).result[0].body, 'Latest update');
+  assert.equal(store.unread(a.agent.id).length, 2);
+  assert.throws(() => store.tool(a.actor, 'room_history', { groupId: 'private' }), /not a member/);
+  assert.throws(() => store.tool(a.actor, 'room_history', { limit: 101 }), /limit/);
+  store.data.settings.room_history = false;
+  assert.throws(() => store.tool(a.actor, 'room_history'), /disabled/);
+});
 test('unread messages append to tool responses once', t => {
   const { store, a, b } = fixture(t);
   store.tool(a.actor, 'notice', { to: b.agent.id, body: 'FYI' });

@@ -2,11 +2,12 @@ import WebSocket from 'ws';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { realpath } from 'node:fs/promises';
+import { realpath, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { fork, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { insideRoot, syncRepository } from './sync.js';
-import { options, openBrowser } from './runtime.js';
+import { options, openBrowser, clientGuiUrl } from './runtime.js';
+import { agentInstructions, onboardingLaunch } from './onboarding.js';
 
 const bridgePath = fileURLToPath(new URL('./bridge.js', import.meta.url));
 const workerPath = fileURLToPath(new URL('./pty-worker.js', import.meta.url));
@@ -39,16 +40,22 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
   const status = (agentId, state, error, exitCode) => send({ type: 'status', agentId, status: state, error, exitCode });
   async function launch({ agent, token: agentToken }) {
     if (processes.has(agent.id)) return;
+    let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const launchCommand = await executable(agent.command, agent.args);
-      const env = { ...process.env, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
+      const instructions = await agentInstructions(agent);
+      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
+      const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
+      await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
+      const onboarding = onboardingLaunch(agent, instructions, process.env, instructionsPath);
+      const launchCommand = await executable(agent.command, onboarding.args);
+      const env = { ...onboarding.env, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
       // Do not let child harnesses inherit host or runner credentials.
       delete env.RELAYDECK_TOKEN; delete env.RELAYDECK_DEVICE_TOKEN; delete env.RELAYDECK_ADMIN_TOKEN;
       delete env.AMOEBA_TOKEN; delete env.AMOEBA_DEVICE_TOKEN; delete env.AMOEBA_ADMIN_TOKEN;
       const worker = fork(workerPath, [], { env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true });
       const entry = { worker, output: '', cwd, ended: false }; processes.set(agent.id, entry);
-      const forget = () => { if (processes.get(agent.id) === entry) processes.delete(agent.id); };
+      const forget = () => { if (processes.get(agent.id) === entry) processes.delete(agent.id); void rm(sessionDirectory, { recursive: true, force: true }).catch(() => {}); };
       worker.send({ type: 'start', ...launchCommand, cwd });
       worker.on('message', msg => {
         if (entry.ended) return;
@@ -60,7 +67,7 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
       worker.on('error', error => { entry.failed = true; forget(); status(agent.id, 'error', error.message); });
       worker.on('exit', code => { forget(); if (!entry.ended && !entry.failed) status(agent.id, 'error', `Terminal worker exited unexpectedly (${code}).`); });
       worker.stderr.on('data', data => log(`Terminal worker: ${data.toString().trim()}`));
-    } catch (error) { status(agent.id, 'error', error.message); }
+    } catch (error) { if (sessionDirectory) await rm(sessionDirectory, { recursive: true, force: true }).catch(() => {}); status(agent.id, 'error', error.message); }
   }
   function connect() {
     if (stopped) return;
@@ -108,8 +115,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   const runner = await startRunner({ server: args.server, token, root: args.root, async onReady(deviceId) {
     if (args.gui && !args.headless && !opened) {
       opened = true;
-      try { const response = await fetch(new URL('/api/gui-ticket', args.server), { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); const { ticket } = await response.json(); openBrowser(`${args.server}/?device=${deviceId}#ticket=${ticket}`); }
-      catch { openBrowser(`${args.server}/?device=${deviceId}`); }
+      try { const response = await fetch(new URL('/api/gui-ticket', args.server), { method: 'POST', headers: { Authorization: `Bearer ${token}` } }); const { ticket } = await response.json(); if (!response.ok || typeof ticket !== 'string' || !ticket) throw new Error('No sign-in ticket'); openBrowser(clientGuiUrl(args.server, deviceId, ticket)); }
+      catch { openBrowser(clientGuiUrl(args.server, deviceId)); }
     }
   } });
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { runner.stop(); setTimeout(() => process.exit(0), 300); });

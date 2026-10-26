@@ -16,6 +16,13 @@ try {
     for (const d of (await readdir(base)).filter(d => /^chromium-\d+$/.test(d)).reverse()) { const p = path.join(base, d, 'chrome-win64', 'chrome.exe'); if (existsSync(p)) { executablePath = p; break; } }
   }
   browser = await chromium.launch({ executablePath, headless: true });
+  // Reproduce links produced by older runners when --server ends in '/'.
+  const linked = await browser.newPage();
+  await linked.goto(`${host.address}//?device=signin-test#ticket=${host.ticket()}`);
+  await linked.waitForFunction(() => document.querySelector('.shell') || document.querySelector('#login-form'));
+  assert.equal(await linked.locator('.shell').count(), 1, 'A valid ticket must sign in even when the path starts with //');
+  assert.equal(new URL(linked.url()).hash, '', 'Sign-in tickets must be cleared from browser history');
+  await linked.close();
   const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
   const errors = []; page.on('pageerror', err => errors.push(err.message));
   await page.goto(host.address);
@@ -43,6 +50,25 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Launch agent', exact: true }).click();
   await page.locator('#terminal-name').filter({ hasText: 'Terminal smoke test' }).waitFor();
   await page.locator('#terminal-actions .running').waitFor();
+  await page.getByRole('button', { name: 'Startup', exact: true }).click();
+  assert.equal(await page.getByLabel('Executable', { exact: false }).inputValue(), process.execPath);
+  const originalArgs = await page.getByLabel('Arguments (JSON array)', { exact: false }).inputValue();
+  await page.getByLabel('Arguments (JSON array)', { exact: false }).fill('"invalid"');
+  await page.getByRole('button', { name: 'Save startup settings', exact: true }).click();
+  await page.locator('#modal-error').filter({ hasText: 'JSON array' }).waitFor();
+  await page.getByLabel('Arguments (JSON array)', { exact: false }).fill(originalArgs);
+  await page.getByLabel('Additional startup instructions', { exact: false }).fill('Coordinate with teammates before changing shared interfaces.');
+  await page.getByRole('button', { name: 'Save startup settings', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(host.store.data.agents[0].status, 'running', 'Saving settings must not stop the current process');
+  await page.getByRole('button', { name: 'Startup', exact: true }).click();
+  assert.equal(await page.getByLabel('Additional startup instructions', { exact: false }).inputValue(), 'Coordinate with teammates before changing shared interfaces.');
+  await page.screenshot({ path: 'docs/screenshots/startup-settings.png', fullPage: true });
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await page.getByRole('button', { name: 'Agent skill', exact: true }).click();
+  await page.locator('#agent-skill').filter({ hasText: 'Coordinate with teammates before changing shared interfaces.' }).waitFor();
+  assert.ok((await page.locator('#agent-skill').textContent()).includes('group_notice'));
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Connect tools', exact: true }).click();
   await page.getByLabel('Configuration format').selectOption('hermes');
   const config = JSON.parse(await page.locator('#bridge-config').textContent());
@@ -76,6 +102,7 @@ try {
   const client = await browser.newPage(); await client.goto(host.address);
   await client.getByLabel('Access key').fill(clientKey); await client.getByRole('button', { name: 'Open workspace' }).click();
   await client.getByText('Client workspace', { exact: true }).waitFor();
+  assert.equal(await client.getByRole('button', { name: 'Startup', exact: true }).count(), 0, 'Clients cannot edit another device’s startup commands');
   await client.getByRole('button', { name: 'Tool controls', exact: true }).click();
   assert.equal(await client.getByRole('checkbox', { name: 'Enable council', exact: true }).isDisabled(), true);
   await page.getByRole('button', { name: 'Workspace', exact: true }).click();
@@ -83,7 +110,7 @@ try {
   await page.screenshot({ path: 'docs/screenshots/mobile.png', fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'No horizontal overflow on mobile');
   assert.deepEqual(errors, [], 'No browser runtime errors');
-  console.log('UI smoke passed: sign in, launch real process, task, notice, council, tool toggle, device pairing, client permissions, and mobile layout.');
+  console.log('UI smoke passed: ticket sign-in, startup editing and validation, agent skill, launch real process, task, notice, council, tool toggle, device pairing, client permissions, and mobile layout.');
 } finally {
   await browser?.close(); await host.close(); await rm(temp, { recursive: true, force: true });
 }

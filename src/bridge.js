@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
 
 const url = process.env.RELAYDECK_SERVER_URL || process.env.AMOEBA_SERVER_URL;
 const token = process.env.RELAYDECK_AGENT_TOKEN || process.env.AMOEBA_AGENT_TOKEN;
@@ -11,6 +12,8 @@ async function request(route, body) {
 }
 const definitions = {
   agents: { description: 'List the team, current tasks, device, harness, and lifecycle state.', schema: {} },
+  rooms: { description: 'Discover the shared chat rooms you belong to. The Team room has ID team.', schema: {} },
+  room_history: { description: 'Read recent chat room notices in chronological order. Start with the team room for context.', schema: { groupId: z.string().optional(), limit: z.number().int().min(1).max(100).optional() } },
   task: { description: 'Signal the task you are currently working on. Empty text clears the task.', schema: { task: z.string().max(2000) } },
   message: { description: 'Send a direct message. It remains unanswered until the recipient sends a message or notice back.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
   notice: { description: 'Send a direct notice without requiring an answer. Also answers pending messages from that recipient.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
@@ -22,10 +25,10 @@ const definitions = {
 };
 if (process.argv.includes('--call')) {
   const index = process.argv.indexOf('--call'); const name = process.argv[index + 1];
-  try { if (!definitions[name]) throw new Error(`Unknown tool. Choose ${Object.keys(definitions).join(', ')}`); console.log(JSON.stringify(await request(`/api/tools/${name}`, JSON.parse(process.argv[index + 2] || '{}')), null, 2)); }
+  try { if (!definitions[name]) throw new Error(`Unknown tool. Choose ${Object.keys(definitions).join(', ')}`); const input = process.argv.includes('--stdin') ? readFileSync(0, 'utf8').replace(/^\uFEFF/, '').trim() : process.argv[index + 2]; console.log(JSON.stringify(await request(`/api/tools/${name}`, JSON.parse(input || '{}')), null, 2)); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 } else {
-  const server = new McpServer({ name: 'relaydeck', version: '0.1.0' }, { instructions: 'You are part of an Relaydeck team. Call inbox at each turn boundary, signal your task, and reply to direct messages. New messages are appended to every tool result.' });
+  const server = new McpServer({ name: 'relaydeck', version: '0.1.0' }, { instructions: 'You are part of a Relaydeck team with a shared chat room. Start with agents, rooms, room_history (groupId team), and inbox. Announce your task and post updates to group_notice (groupId team). Call inbox at each turn boundary and reply to direct messages. New messages are appended to every tool result. Reading is not replying.' });
   let available;
   try { available = await request('/api/tools'); } catch (error) { console.error(error.message); process.exit(1); }
   const registrations = {};
