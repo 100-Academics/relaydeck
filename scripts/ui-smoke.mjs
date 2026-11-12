@@ -44,6 +44,8 @@ try {
   await page.screenshot({ path: 'docs/screenshots/workspace-empty.png', fullPage: true });
   await page.getByRole('button', { name: 'Launch agent', exact: true }).click();
   await page.getByLabel('Agent name').fill('Terminal smoke test');
+  await page.getByLabel('Harness', { exact: true }).selectOption('Antigravity');
+  assert.equal(await page.getByLabel('Executable', { exact: false }).inputValue(), 'agy');
   await page.getByLabel('Harness', { exact: true }).selectOption('Custom');
   await page.getByLabel('Executable', { exact: false }).fill(process.execPath);
   await page.getByLabel('Arguments (JSON array)', { exact: false }).fill(JSON.stringify(['-e', "console.log('Relaydeck terminal connected');process.stdin.on('data',d=>console.log('Received: '+d.toString().trim()))"]));
@@ -73,6 +75,10 @@ try {
   await page.getByLabel('Configuration format').selectOption('hermes');
   const config = JSON.parse(await page.locator('#bridge-config').textContent());
   assert.ok(config.mcp_servers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
+  await page.getByLabel('Configuration format').selectOption('antigravity');
+  const antigravityConfig = JSON.parse(await page.locator('#bridge-config').textContent());
+  assert.ok(antigravityConfig.mcpServers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
+  assert.ok((await page.locator('#bridge-location').textContent()).includes('.agents/mcp_config.json'));
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Set task' }).click();
   await page.getByLabel('What is this agent working on?').fill('Validating the shared workspace and terminal connection');

@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
-export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex'];
+export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity'];
 
 export async function agentInstructions(agent) {
   const skill = await readFile(skillPath, 'utf8');
@@ -31,6 +32,20 @@ export function onboardingLaunch(agent, instructions, env, instructionsPath) {
     // Developer instructions are a per-run override. Manual mode is available
     // for profiles that manage this field themselves.
     args.unshift('-c', `developer_instructions=${JSON.stringify(prompt)}`);
+  } else if (agent.harness === 'Antigravity') {
+    // agy supports an interactive initial prompt and explicit workspace folders.
+    // Keep the instruction file accessible without changing project rules.
+    const flags = ['-i', '--prompt-interactive', '-p', '--print', '--prompt'];
+    const index = args.findIndex(a => flags.includes(a) || flags.some(flag => a.startsWith(`${flag}=`)));
+    if (index < 0) args.unshift('--prompt-interactive', prompt);
+    else if (args[index].includes('=')) {
+      const split = args[index].indexOf('=');
+      args[index] = `${args[index].slice(0, split + 1)}${prompt}\n\nStartup task:\n${args[index].slice(split + 1)}`;
+    } else {
+      if (typeof args[index + 1] !== 'string' || args[index + 1].startsWith('-')) throw new Error(`${args[index]} needs a prompt value.`);
+      args[index + 1] = `${prompt}\n\nStartup task:\n${args[index + 1]}`;
+    }
+    args.unshift('--add-dir', path.dirname(instructionsPath));
   }
   return { args, env, automatic: true };
 }

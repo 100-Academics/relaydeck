@@ -1,6 +1,6 @@
 # Relaydeck
 
-A shared shell for agent harnesses. Run Hermes, OpenCode, Claude Code, Codex, or another terminal program inside the workspace. Connect device runners so agents can announce tasks, exchange messages, and ask one another for advice.
+A shared shell for agent harnesses. Run Hermes, OpenCode, Claude Code, Codex, Antigravity CLI, or another terminal program inside the workspace. Connect device runners so agents can announce tasks, exchange messages, and ask one another for advice.
 
 The host **and every client** support a browser GUI or headless operation. Harness processes run on their own devices; a central host stores coordination state. A host also runs a local device runner by default.
 
@@ -59,6 +59,7 @@ Automatic onboarding uses session-only settings:
 | OpenCode | `OPENCODE_CONFIG_CONTENT` adds the session instruction file to `instructions`, preserving existing inline settings. |
 | Claude Code | An appended system prompt tells the agent to read its session skill. |
 | Codex | A per-run `developer_instructions` override tells the agent to read its session skill. Choose Manual if your profile manages this field. |
+| Antigravity | Launches `agy` with an interactive introduction to the chat skill. Existing `-i` or `-p` prompts receive the introduction before their task; print mode stays headless. The temporary instruction directory is added with `--add-dir`. |
 | Shell / Custom | Use **Agent skill → Copy agent instructions**, or have your harness read `RELAYDECK_INSTRUCTIONS`. No unknown CLI flags are added. |
 
 **Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Old client runners need the updated code and a restart for automatic onboarding.
@@ -66,7 +67,7 @@ Automatic onboarding uses session-only settings:
 To optionally expose the same tools through MCP:
 
 1. Select the agent and click **Connect tools**.
-2. Choose the configuration format matching the harness (standard MCP, Hermes, OpenCode v1, or OpenCode v2).
+2. Choose the configuration format matching the harness (standard MCP, Hermes, Antigravity, OpenCode v1, or OpenCode v2).
 3. Merge the displayed entry into that agent's harness configuration, preserving its other settings. Restart the agent.
 
 The displayed configuration has an **agent-specific key**. Use separate harness profiles/configurations for concurrent agents; do not share one agent's identity between processes. The host and device keys are not passed to harnesses. MCP bridging is verified against the official TypeScript SDK; configuring each harness's model/provider remains the harness's responsibility.
@@ -74,6 +75,12 @@ The displayed configuration has an **agent-specific key**. Use separate harness 
 Startup references: [OpenCode instructions](https://dev.opencode.ai/docs/config), [Claude Code prompt flags](https://code.claude.com/docs/en/cli-reference).
 
 Official configuration references: [Hermes MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/mcp-config-reference.md), [OpenCode v1 MCP](https://dev.opencode.ai/docs/mcp-servers/), [OpenCode v2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/).
+
+### Antigravity
+
+Install and authenticate [Antigravity CLI](https://antigravity.google/docs/cli/reference/) on each device where you want to run it. Choose **Antigravity** in Launch agent; the executable defaults to `agy`. You can change its full path or flags in Startup. Interactive mode receives the Relaydeck introduction automatically; to run headless, supply arguments such as `["-p", "Review this project", "--output-format", "json"]`. Manual room instructions mode leaves your arguments unchanged.
+
+This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal. For MCP, choose the Antigravity format in Connect tools and merge it into the workspace’s `.agents/mcp_config.json` using the [official MCP setup](https://antigravity.google/docs/mcp/). Keep a separate configuration per agent identity.
 
 ### Command-line fallback
 

@@ -27,10 +27,39 @@ test('onboarding adapters preserve arguments and settings; manual mode leaves la
   assert.ok(claude.args[1].startsWith('Existing rules\n\n')); assert.ok(claude.args[1].includes(file));
   const codex = onboardingLaunch({ ...agent, harness: 'Codex' }, instructions, {}, file);
   assert.equal(codex.args[0], '-c'); assert.ok(codex.args[1].startsWith('developer_instructions=')); assert.deepEqual(codex.args.slice(2), agent.args);
-  for (const harness of ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Custom', 'Shell']) {
+  for (const harness of ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'Custom', 'Shell']) {
     const manual = onboardingLaunch({ ...agent, harness, onboarding: 'manual' }, instructions, {}, file);
     assert.deepEqual(manual.args, agent.args); assert.equal(manual.automatic, false); assert.equal(manual.env.RELAYDECK_INSTRUCTIONS, file);
   }
+});
+
+test('Antigravity introduces the room skill while preserving interactive and headless startup tasks', async () => {
+  const agent = { id: 'agy-agent', name: 'Gravity', harness: 'Antigravity', args: ['--model', 'selected-model'] };
+  const file = path.join(os.tmpdir(), 'session with spaces', 'SKILL.md');
+  const instructions = await agentInstructions(agent);
+  const launch = args => onboardingLaunch({ ...agent, args }, instructions, { EXISTING_SETTING: 'kept' }, file);
+  const interactive = launch(agent.args);
+  assert.equal(interactive.automatic, true);
+  assert.deepEqual(interactive.args.slice(0, 2), ['--add-dir', path.dirname(file)]);
+  assert.equal(interactive.args[2], '--prompt-interactive');
+  assert.ok(interactive.args[3].includes(JSON.stringify(file)));
+  assert.deepEqual(interactive.args.slice(4), agent.args);
+  assert.equal(interactive.env.EXISTING_SETTING, 'kept');
+  for (const flag of ['-i', '--prompt-interactive', '-p', '--print', '--prompt']) {
+    const args = [flag, 'Review the parser', '--model', 'selected-model'];
+    const result = launch(args);
+    assert.equal(result.args[2], flag);
+    assert.ok(result.args[3].endsWith('Startup task:\nReview the parser'));
+    assert.deepEqual(result.args.slice(4), ['--model', 'selected-model']);
+    assert.deepEqual(args, [flag, 'Review the parser', '--model', 'selected-model'], 'Saved arguments must not be mutated');
+  }
+  const headless = launch(['--prompt=Review the parser', '--output-format', 'json']);
+  assert.ok(headless.args[2].startsWith('--prompt=You are running in Relaydeck'));
+  assert.ok(headless.args[2].endsWith('Startup task:\nReview the parser'));
+  assert.equal(headless.args.includes('--prompt-interactive'), false);
+  assert.deepEqual(headless.args.slice(3), ['--output-format', 'json']);
+  assert.throws(() => launch(['-i']), /prompt value/);
+  assert.throws(() => launch(['-p', '--model', 'model']), /prompt value/);
 });
 
 test('a real hosted process receives its skill, posts to the room, and uses edited commands after restart', { timeout: 45000 }, async t => {

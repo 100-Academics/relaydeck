@@ -109,6 +109,7 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     const entry = { command, args, env };
     const configurations = {
       generic: { mcpServers: { relaydeck: entry } },
+      antigravity: { mcpServers: { relaydeck: entry } },
       hermes: { mcp_servers: { relaydeck: entry } },
       opencode: { mcp: { relaydeck: { type: 'local', command: [command, ...args], environment: env, enabled: true } } },
       'opencode-v2': { mcp: { servers: { relaydeck: { type: 'local', command: [command, ...args], environment: env } } } },
