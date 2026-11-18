@@ -55,9 +55,16 @@ export class Store {
     fail(index >= 0, 'Device not found.', 404);
     const [device] = this.data.devices.splice(index, 1);
     const agentIds = new Set(this.data.agents.filter(a => a.deviceId === deviceId).map(a => a.id));
-    this.data.agents = this.data.agents.filter(a => a.deviceId !== deviceId);
-    this.data.messages = this.data.messages.filter(m => m.from !== deviceId && !agentIds.has(m.from) && m.to !== deviceId && !m.recipients.some(id => id === deviceId || agentIds.has(id)));
-    this.data.councils = this.data.councils.filter(c => c.from !== deviceId && !agentIds.has(c.from) && !c.participants.some(id => agentIds.has(id)));
+    const gone = id => id === deviceId || agentIds.has(id);
+    this.data.agents = this.data.agents.filter(a => !gone(a.id));
+    // Keep group room history and conversations between surviving members;
+    // drop only what the removed device or its agents sent, or what was
+    // addressed solely to them.
+    this.data.messages = this.data.messages.filter(m => !gone(m.from) && !(m.to != null && gone(m.to)));
+    // Councils the removed device or its agents started go away; councils
+    // others started keep their surviving participants.
+    for (const c of this.data.councils) c.participants = c.participants.filter(id => !gone(id));
+    this.data.councils = this.data.councils.filter(c => !gone(c.from) && c.participants.length > 0);
     this.save();
     return device;
   }
