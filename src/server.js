@@ -81,6 +81,24 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
     broadcast(); res.json(next);
   });
+  app.delete('/api/devices/:id', admin, (req, res) => {
+    const device = store.data.devices.find(d => d.id === req.params.id);
+    fail(device, 'Device not found.', 404);
+    const agentIds = store.data.agents.filter(a => a.deviceId === device.id).map(a => a.id);
+    store.activity(req.actor.id, 'device', `Removed ${device.name}`);
+    store.removeDevice(device.id);
+    for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
+    for (const [key, p] of pending) if (p.deviceId === device.id) { clearTimeout(p.timer); p.reject(new Error('Device removed by host.')); pending.delete(key); }
+    const runner = runners.get(device.id);
+    if (runner) {
+      // Stop active agent processes, then drop the runner registration so the
+      // socket's close handler does not bookkeep a device that no longer exists.
+      for (const agentId of agentIds) runner.send(JSON.stringify({ type: 'stop', agentId }));
+      runners.delete(device.id);
+      runner.close(4003, 'Device removed by host');
+    }
+    broadcast(); res.json({ ok: true });
+  });
   app.patch('/api/settings', admin, (req, res) => {
     for (const [key, value] of Object.entries(req.body)) { fail(tools.includes(key) && typeof value === 'boolean', 'Unknown tool setting.'); store.data.settings[key] = value; }
     store.activity(req.actor.id, 'settings', 'Updated enabled tools'); store.save(); broadcast(); res.json(store.data.settings);
