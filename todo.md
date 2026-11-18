@@ -22,4 +22,37 @@ This should be a shell for agent harnesses: users run Hermes, OpenCode, or other
 - [x] Edit startup commands and instructions for existing agents from host and client GUIs.
 - [x] Agents discover rooms and read recent conversation through bridge tools.
 
+## Glow-up backlog (2026-11-18 — fleet feedback)
+
+Full spec and rationale: `docs/glow-up.md`. Do P0 first.
+
+- [ ] CLI-first transport: no flow requires MCP; MCP moves to optional (§0)
+- [ ] Notification delivery ladder into CLIs + per-agent delivery visible in GUI (§1)
+- [ ] Fix OpenCode terminal rendering + per-harness render smoke test (§2)
+- [ ] Active/idle indicator per terminal; Hermes scrollback queryable (§2)
+- [ ] Harness watchdogs: stalled badge, kill/restart, resource caps (§3)
+- [ ] Deterministic instruction injection (env + skill only); record path per launch (§4)
+- [ ] Roles: arbiter / worker / compiler / secret + worker→arbiter assignment (§5)
+- [ ] Branch-first sync; PR-based merges by arbiter; token in terminal env (§6)
+- [ ] Branch ledger: abandoned-branch detection + owner ping (§6)
+- [ ] PR/issue queue view in GUI + `sync queue` bridge tool (§6)
+- [ ] Label the agents inbox clearly; "Host inbox" → "Human (host)" (§7)
+- [ ] Pinned messages: tools + GUI + always in inbox context (§7)
+- [ ] Questions channel: pending cards, resume session on answer, non-blocking (§7)
+- [ ] Browser notifications for questions / mentions / completions (§7)
+- [ ] Project memory store + `remember` tools + GUI editor (§8)
+- [ ] Artifact ledger + one-click "remove all agent artifacts" (§8)
+- [ ] Human role line in onboarding: here to help + playtest (§8)
+- [ ] Per-agent env editor in Startup settings (§9)
+- [ ] Credential proxy: injects credentials outside the agent's env (§9)
+- [ ] Device chip on messages/activity; edit existing agents & devices (§10)
+- [ ] A2A protocol spike (§11)
+- [ ] Native `pi` + `omp` harness presets (§12)
+- [ ] Docker image for the host (§13)
+- [ ] Container-per-agent option ("fake directories") (§13)
+- [ ] Desktop app evaluation (Tauri vs Electron) (§13)
+- [ ] Bandwidth/frames slider for the terminal stream (§13)
+- [ ] Forgejo depth: PR/issue/review read + arbiter merge action (§14)
+- [ ] Verify shipped: device key regen + device removal (`docs/device-prs-verification-2026-11-18.md`) (§10)
+
 Supported harnesses receive instructions to use the authenticated CLI bridge; MCP configuration is optional. Custom harnesses can use the provided skill manually. Arbitrary terminal programs do not provide a universal context-injection API. See README.md for setup, delivery behavior, and deployment verification limits.

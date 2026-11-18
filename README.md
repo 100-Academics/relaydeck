@@ -6,6 +6,10 @@ The host **and every client** support a browser GUI or headless operation. Harne
 
 ![Relaydeck workspace](docs/screenshots/workspace.png)
 
+## Roadmap
+
+The next release is a complete overhaul driven by fleet feedback — see [docs/glow-up.md](docs/glow-up.md) for the full spec: branch- and PR-first repository sync with assigned roles (Arbiter / Worker / Compiler / Secret Agent), reliable CLI-first instruction injection, a questions channel with pinned inbox messages and browser notifications, project memory, an artifact ledger, a credential proxy, Docker and desktop deployments, and native `pi` / `omp` support.
+
 ## Quick start
 
 Install Node.js 22.16+ (Node 24 recommended), Git, and the harnesses you want to use. Then, from this directory:
