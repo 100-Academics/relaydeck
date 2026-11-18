@@ -81,6 +81,18 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
     broadcast(); res.json(next);
   });
+  app.delete('/api/devices/:id', admin, (req, res) => {
+    const device = store.data.devices.find(d => d.id === req.params.id);
+    fail(device, 'Device not found.', 404);
+    const runner = runners.get(device.id);
+    if (runner) {
+      for (const agent of store.data.agents.filter(a => a.deviceId === device.id)) runner.send(JSON.stringify({ type: 'stop', agentId: agent.id }));
+      runner.close(4003, 'Device removed by host');
+    }
+    store.activity(req.actor.id, 'device', `Removed ${device.name}`);
+    store.removeDevice(device.id);
+    broadcast(); res.json({ ok: true });
+  });
   app.patch('/api/settings', admin, (req, res) => {
     for (const [key, value] of Object.entries(req.body)) { fail(tools.includes(key) && typeof value === 'boolean', 'Unknown tool setting.'); store.data.settings[key] = value; }
     store.activity(req.actor.id, 'settings', 'Updated enabled tools'); store.save(); broadcast(); res.json(store.data.settings);

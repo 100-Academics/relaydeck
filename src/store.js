@@ -50,6 +50,17 @@ export class Store {
     this.save();
     return { ...d, token, tokenHash: undefined };
   }
+  removeDevice(deviceId) {
+    const index = this.data.devices.findIndex(d => d.id === deviceId);
+    fail(index >= 0, 'Device not found.', 404);
+    const [device] = this.data.devices.splice(index, 1);
+    const agentIds = new Set(this.data.agents.filter(a => a.deviceId === deviceId).map(a => a.id));
+    this.data.agents = this.data.agents.filter(a => a.deviceId !== deviceId);
+    this.data.messages = this.data.messages.filter(m => m.from !== deviceId && !agentIds.has(m.from) && m.to !== deviceId && !m.recipients.some(id => id === deviceId || agentIds.has(id)));
+    this.data.councils = this.data.councils.filter(c => c.from !== deviceId && !agentIds.has(c.from) && !c.participants.some(id => agentIds.has(id)));
+    this.save();
+    return device;
+  }
   auth(token) {
     if (typeof token !== 'string' || !token || token.length > 1000) return null;
     if (equal(token, this.data.adminToken)) return { role: 'admin', id: 'human', name: 'You' };
