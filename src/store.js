@@ -41,6 +41,15 @@ export class Store {
     const d = { id: id(), name: str(name, 'Device name', 80), tokenHash: hash(token), online: false, createdAt: new Date().toISOString() };
     this.data.devices.push(d); this.save(); return { ...d, token, tokenHash: undefined };
   }
+  regenerateDeviceToken(deviceId) {
+    const d = this.data.devices.find(d => d.id === deviceId);
+    fail(d, 'Device not found.', 404);
+    const token = secret();
+    d.tokenHash = hash(token);
+    d.online = false;
+    this.save();
+    return { ...d, token, tokenHash: undefined };
+  }
   auth(token) {
     if (typeof token !== 'string' || !token || token.length > 1000) return null;
     if (equal(token, this.data.adminToken)) return { role: 'admin', id: 'human', name: 'You' };
