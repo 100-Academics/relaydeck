@@ -227,6 +227,7 @@ document.addEventListener('click', async event => {
       const device = state.devices.find(d => d.id === regenerateDevice.dataset.regenerateDevice);
       if (!device || !confirm(`Regenerate ${device.name}'s key? The current key will stop working.`)) return;
       const next = await api(`/devices/${device.id}/regenerate`, {}, 'POST');
+      state = await api('/state'); render(); toast(`${device.name}'s key was regenerated and its old key revoked.`);
       modal('New device key', `<p>The previous key has been revoked. Save this key and update the runner before reconnecting.</p><pre class="copy-block" id="regenerated-command">${e(`npm run runner -- --server ${location.origin} --token ${next.token} --root "/path/to/workspace" --gui`)}</pre>${button('copy-regenerated', 'Copy command', 'copy', 'secondary')}${field('Device key — save it now', `<input readonly value="${next.token}" aria-label="Device key"/>`)}<p class="quiet">Use the host’s reachable address in place of localhost. Remove <code>--gui</code> for headless mode.</p><div class="form-actions">${button('close', 'Done', '', 'primary')}</div>`);
     }
     else if (reply) { const original = state.messages.find(m => m.id === reply.dataset.reply); modal(`Reply to ${original.fromName}`, `${field('Your response', '<textarea name="body" rows="4" required></textarea>')}<div class="form-actions"><button class="primary" type="submit">Send reply</button></div>`, async data => { await tool('notice', { to: original.from, replyTo: original.id, body: data.get('body') }); dialog.close(); }); }
