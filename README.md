@@ -47,7 +47,7 @@ Remote runners reconnect automatically. Their harnesses keep running through a h
 
 ## Give a harness its communication tools
 
-New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool; MCP is optional.
+New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool.
 
 **Startup** in the agent terminal header lets you edit its executable, arguments, harness, message delivery, and extra startup instructions. Save changes while it runs, then stop and restart to apply command and instruction changes. Changing its working directory requires stopping it first. The same controls are available to clients for their own agents. Arguments are individual strings in a JSON array, so an executable path or argument containing spaces remains intact.
 
@@ -64,27 +64,17 @@ Automatic onboarding uses session-only settings:
 
 **Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Old client runners need the updated code and a restart for automatic onboarding.
 
-To optionally expose the same tools through MCP:
-
-1. Select the agent and click **Connect tools**.
-2. Choose the configuration format matching the harness (standard MCP, Hermes, Antigravity, OpenCode v1, or OpenCode v2).
-3. Merge the displayed entry into that agent's harness configuration, preserving its other settings. Restart the agent.
-
-The displayed configuration has an **agent-specific key**. Use separate harness profiles/configurations for concurrent agents; do not share one agent's identity between processes. The host and device keys are not passed to harnesses. MCP bridging is verified against the official TypeScript SDK; configuring each harness's model/provider remains the harness's responsibility.
-
 Startup references: [OpenCode instructions](https://dev.opencode.ai/docs/config), [Claude Code prompt flags](https://code.claude.com/docs/en/cli-reference).
-
-Official configuration references: [Hermes MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/mcp-config-reference.md), [OpenCode v1 MCP](https://dev.opencode.ai/docs/mcp-servers/), [OpenCode v2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/).
 
 ### Antigravity
 
 Install and authenticate [Antigravity CLI](https://antigravity.google/docs/cli/reference/) on each device where you want to run it. Choose **Antigravity** in Launch agent; the executable defaults to `agy`. You can change its full path or flags in Startup. Interactive mode receives the Relaydeck introduction automatically; to run headless, supply arguments such as `["-p", "Review this project", "--output-format", "json"]`. Manual room instructions mode leaves your arguments unchanged.
 
-This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal. For MCP, choose the Antigravity format in Connect tools and merge it into the workspace’s `.agents/mcp_config.json` using the [official MCP setup](https://antigravity.google/docs/mcp/). Keep a separate configuration per agent identity.
+This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal.
 
-### Command-line fallback
+### Command-line bridge
 
-Any harness that can execute a command can use the same tools, even without MCP. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, and `RELAYDECK_INSTRUCTIONS`. The latter points to the session skill with identity and additional instructions.
+Any harness that can execute a command can use the same tools. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, and `RELAYDECK_INSTRUCTIONS`. The latter points to the session skill with identity and additional instructions. Each launched process receives its own agent-specific key; do not share one agent's identity between processes. The host and device keys are not passed to harnesses.
 
 POSIX shell:
 
@@ -103,7 +93,7 @@ node $env:RELAYDECK_BRIDGE --call inbox '{}'
 '{"groupId":"team","body":"Parser implementation is underway."}' | node $env:RELAYDECK_BRIDGE --call group_notice --stdin
 ```
 
-Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the displayed command, args, and env. No harness's global settings are edited automatically.
+No harness's global settings are edited automatically.
 
 ## Message behavior
 
@@ -119,7 +109,7 @@ Messages persist even while a device is offline. Terminal input is only forwarde
 
 ## Tools and activity
 
-The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list. MCP bridges refresh their advertised tools every five seconds.
+The CLI bridge exposes `agents`, `rooms`, `room_history`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list.
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 
@@ -151,8 +141,8 @@ npm run test:ui     # real browser flows and desktop/mobile screenshots
 
 The UI smoke test requires a Playwright Chromium install (`npx playwright install chromium`) or `RELAYDECK_BROWSER` pointing to a compatible Chromium executable. It uses an isolated temporary workspace and real terminal process; it makes no model calls.
 
-Tests cover message semantics, context delivery, tool switches, scope enforcement, durable storage, real MCP transport, real terminal I/O, host restart/reconnect, process restart, path boundaries, and Git push/pull across two checkouts. The sync test uses a local service fixture and real Git transport; live Forgejo/Gitea authentication and physical multi-device networking require your deployment.
+Tests cover message semantics, context delivery, tool switches, scope enforcement, durable storage, real CLI bridge transport, real terminal I/O, host restart/reconnect, process restart, path boundaries, and Git push/pull across two checkouts. The sync test uses a local service fixture and real Git transport; live Forgejo/Gitea authentication and physical multi-device networking require your deployment.
 
-The application consists of an Express/WebSocket host, SQLite store, outbound device runners, isolated native PTY workers, a stdio MCP bridge, and a Vite/xterm browser UI. No cloud account is needed to run the shell itself.
+The application consists of an Express/WebSocket host, SQLite store, outbound device runners, isolated native PTY workers, a CLI bridge, and a Vite/xterm browser UI. No cloud account is needed to run the shell itself.
 
 Existing workspaces created under the previous name are copied into the new data directory on first startup. Stored messages, host keys, and device pairings are preserved; the original database remains available as a backup. Legacy bridge environment variables remain accepted.

@@ -15,7 +15,9 @@ During work, read `inbox` at turn boundaries and before finishing. Share useful 
 
 ## Tools
 
-Use the Relaydeck MCP tools when configured. Otherwise use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
+Use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
+
+The table shows example calls. IDs in angle brackets are placeholders, not real teammates or messages — look up real IDs with `agents` before sending.
 
 | Tool | Input example | Purpose |
 | --- | --- | --- |
@@ -25,11 +27,11 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 | `inbox` | `{}` | Read pending direct messages and room notices |
 | `task` | `{"task":"Reviewing the parser"}` | Announce your current task; empty text clears it |
 | `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
-| `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
-| `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |
+| `message` | `{"to":"<teammate-id>","body":"Can you check this interface?"}` | Ask a teammate for a reply |
+| `notice` | `{"to":"<sender-id>","body":"Checked; the interface works.","replyTo":"<message-id>"}` | Reply or send an update without requesting another reply |
 | `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
 
-The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
+The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`. Your own name and ID appear in the "This session" section of your session instructions — that identity is yours, and no example in this skill changes it.
 
 POSIX shell:
 

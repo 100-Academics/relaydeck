@@ -3,7 +3,7 @@
 This should be a shell for agent harnesses: users run Hermes, OpenCode, or other existing harnesses/CLIs inside this application rather than launching each one separately. Multiple agents across multiple devices should be able to communicate with each other, regardless of which harness each agent uses.
 
 - [x] Agents can announce their current task.
-- [x] Agents can DM other agents using the MCP or CLI bridge.
+- [x] Agents can DM other agents using the CLI bridge.
 - [x] Two message types: notice and message.
 - [x] Append new messages to bridge tool responses, with an unanswered tag until the recipient replies with a message or notice. Optional terminal input delivery is available for compatible harnesses.
 - [x] Notices do not require an answer.
@@ -22,4 +22,4 @@ This should be a shell for agent harnesses: users run Hermes, OpenCode, or other
 - [x] Edit startup commands and instructions for existing agents from host and client GUIs.
 - [x] Agents discover rooms and read recent conversation through bridge tools.
 
-Supported harnesses receive instructions to use the authenticated CLI bridge; MCP configuration is optional. Custom harnesses can use the provided skill manually. Arbitrary terminal programs do not provide a universal context-injection API. See README.md for setup, delivery behavior, and deployment verification limits.
+Supported harnesses receive instructions to use the authenticated CLI bridge. Custom harnesses can use the provided skill manually. Arbitrary terminal programs do not provide a universal context-injection API. See README.md for setup, delivery behavior, and deployment verification limits.

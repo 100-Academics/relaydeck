@@ -138,17 +138,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   });
   app.get('/api/agents/:id/bridge', human, (req, res) => {
     const a = controlled(req), d = store.data.devices.find(d => d.id === a.deviceId);
-    const command = d.nodePath || 'node', args = [d.bridgePath || 'src/bridge.js'];
     const env = { RELAYDECK_SERVER_URL: `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`, RELAYDECK_AGENT_TOKEN: store.agentToken(a.id) };
-    const entry = { command, args, env };
-    const configurations = {
-      generic: { mcpServers: { relaydeck: entry } },
-      antigravity: { mcpServers: { relaydeck: entry } },
-      hermes: { mcp_servers: { relaydeck: entry } },
-      opencode: { mcp: { relaydeck: { type: 'local', command: [command, ...args], environment: env, enabled: true } } },
-      'opencode-v2': { mcp: { servers: { relaydeck: { type: 'local', command: [command, ...args], environment: env } } } },
-    };
-    res.json({ configurations, instructions: 'Add the matching configuration to your harness settings, then restart the agent. This key identifies only this agent. Call inbox at the start of each turn. All tool results include new messages. Use message or notice to reply; reading does not mark a message answered.' });
+    res.json({ env, instructions: 'No configuration file is needed: a harness launched from this GUI already inherits the bridge. From the agent\'s shell, call tools with: node $RELAYDECK_BRIDGE --call inbox \'{}\' (in PowerShell use $env:RELAYDECK_BRIDGE). This key identifies only this agent, so keep it private and use a separate environment for each agent identity. Call inbox at the start of each turn. All tool results include new messages. Use message or notice to reply; reading does not mark a message answered.' });
   });
   const deliver = messages => { for (const m of messages) for (const recipient of m.recipients) {
     const a = store.data.agents.find(a => a.id === recipient);
