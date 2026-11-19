@@ -6,6 +6,10 @@ The host **and every client** support a browser GUI or headless operation. Harne
 
 ![Relaydeck workspace](docs/screenshots/workspace.png)
 
+## Roadmap
+
+The next release is a complete overhaul driven by fleet feedback — see [docs/glow-up.md](docs/glow-up.md) for the full spec: branch- and PR-first repository sync with assigned roles (Arbiter / Worker / Compiler / Secret Agent), reliable CLI-first instruction injection, a questions channel with pinned inbox messages and "you have mail" relays, project memory, an artifact ledger, a credential proxy, A2A protocol support, a desktop-grade web UI, Docker, and native `pi` / `omp` support.
+
 ## Quick start
 
 Install Node.js 22.16+ (Node 24 recommended), Git, and the harnesses you want to use. Then, from this directory:
@@ -138,7 +142,9 @@ Authentication uses each device's existing Git credential helper. Do not put cre
 
 State is stored transactionally in `.relaydeck/relaydeck.sqlite`, using SQLite WAL. This includes the host key, hashed device/agent keys, agents, rooms, messages, councils, settings, and the latest 2,000 activity events. Terminal scrollback stays in memory (up to 150,000 characters per process); it is not a permanent terminal recording. Stop the host before backing up the data directory. `--data` changes the data location.
 
-The host binds to loopback by default. For remote connections, use a trusted private network or HTTPS through a reverse proxy that supports WebSockets and sets `X-Forwarded-Proto`. Do not expose an unencrypted terminal control service to the public internet. Host keys allow control of all paired devices. Device keys allow control of that device. Agent keys only allow coordination tools and sync in the agent's own working directory.
+The host binds to loopback by default. For remote connections, use a trusted private network or HTTPS through a reverse proxy that supports WebSockets and sets `X-Forwarded-Proto`. Do not expose an unencrypted terminal control service to the public internet. For multi-device fleets, prefer a Tailscale mesh over port forwarding: no open ports, no public exposure, stable per-device identity. Host keys allow control of all paired devices. Device keys allow control of that device. Agent keys only allow coordination tools and sync in the agent's own working directory.
+
+Full threat model, key hierarchy, and token handling: [SECURITY.md](SECURITY.md).
 
 Launch and sync paths are checked against each device's real workspace root, including symlinks. This is a routing boundary, **not an operating-system sandbox**: launched harnesses execute with the device user's permissions. Use separate accounts or containers if isolation is required.
 
