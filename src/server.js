@@ -203,9 +203,9 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   });
   const deliver = messages => { for (const m of messages) for (const recipient of m.recipients) {
     const a = store.data.agents.find(a => a.id === recipient);
-    if (a?.delivery === 'terminal' && a.status === 'running') {
+    if (a?.status === 'running') {
       const suffix = m.from === 'a2a' ? '\nThis came over A2A. Reply with the message tool to "a2a": use notice for your final answer, or message to ask the client a question.' : '';
-      runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, text: `${m.fromName}: ${m.body}${suffix}` }));
+      runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, terminal: a.delivery === 'terminal', text: `${m.fromName}: ${m.body}${suffix}` }));
     }
   } };
   app.get('/api/memory', (req, res) => res.json({ memory: store.data.memory }));
