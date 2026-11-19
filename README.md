@@ -123,6 +123,12 @@ The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `messag
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 
+## Memory & artifacts
+
+**Project memory** (`remember` / `memory` tools, Memory & artifacts page in the GUI): durable notes that outlive sessions. Every `remember` call is injected into the next session's instructions of every agent, and the host can add or forget notes from the GUI.
+
+**Artifact ledger** (`artifact` / `artifacts` tools): agents declare what they create — `file`, `dir`, `service`, or `port` — so nothing the team builds is anonymous. The host page lists every declaration with its author; **Remove declared files & directories** shows a preview of the exact deletion list, then deletes precisely that set on the owning devices (services and ports stay listed for manual stop). Deletion runs on the device where the artifact lives, paths are confined to the device workspace, and undeclared files are never touched.
+
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.

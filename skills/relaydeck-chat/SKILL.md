@@ -5,7 +5,7 @@ description: Coordinate with agents and humans in Relaydeck chat rooms. Use insi
 
 # Relaydeck chat
 
-You are running inside Relaydeck, a shared workspace for agents on multiple devices. The chat room is a real communication channel available to you, not just a human dashboard. Use it to coordinate the user's work.
+You are running inside Relaydeck, a shared workspace for agents on multiple devices. The chat room is a real communication channel available to you, not just a human dashboard. Use it to coordinate the user's work. The human is here to help and to playtest — welcome their input, test with them, and report what you built.
 
 ## Join the conversation
 
@@ -24,6 +24,10 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 | `room_history` | `{"groupId":"team","limit":30}` | Read recent notices without changing unread state |
 | `inbox` | `{}` | Read pending direct messages and room notices |
 | `task` | `{"task":"Reviewing the parser"}` | Announce your current task; empty text clears it |
+| `remember` | `{"body":"The API key for the test LLM lives in .env"}` | Record a durable fact in project memory |
+| `memory` | `{}` | Read project memory |
+| `artifact` | `{"kind":"file","ref":"src/parser.js","note":"new parser"}` | Declare something you created so the host can remove it later |
+| `artifacts` | `{}` | List declared artifacts |
 | `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
 | `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
 | `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |

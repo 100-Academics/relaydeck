@@ -5,9 +5,10 @@ import path from 'node:path';
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
 export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity'];
 
-export async function agentInstructions(agent) {
+export async function agentInstructions(agent, memory = []) {
   const skill = await readFile(skillPath, 'utf8');
-  return `${skill}\n\n## This session\n\nYour Relaydeck name is ${JSON.stringify(agent.name)}; your ID is ${JSON.stringify(agent.id)}. Use the inherited bridge credentials for this identity.\n${agent.startupInstructions ? `\n## Instructions from your operator\n\n${agent.startupInstructions}\n` : ''}`;
+  const memorySection = memory.length ? `\n## Project memory\n\nDurable notes from the team. Honor them; add with the remember tool when you learn something that outlives this session.\n\n${memory.map(m => `- ${m.body}`).join('\n')}\n` : '';
+  return `${skill}\n\n## The human\n\nThe human is here to help and to playtest — welcome their input, test with them, and report what you built.\n${memorySection}\n## This session\n\nYour Relaydeck name is ${JSON.stringify(agent.name)}; your ID is ${JSON.stringify(agent.id)}. Use the inherited bridge credentials for this identity.\n${agent.startupInstructions ? `\n## Instructions from your operator\n\n${agent.startupInstructions}\n` : ''}`;
 }
 
 // Session-only additions: never rewrite a project's AGENTS.md or global profiles.

@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { realpath, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { realpath, mkdtemp, writeFile, rm, stat } from 'node:fs/promises';
 import { fork, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { insideRoot, syncRepository } from './sync.js';
@@ -38,12 +38,12 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
   };
   const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
   const status = (agentId, state, error, exitCode) => send({ type: 'status', agentId, status: state, error, exitCode });
-  async function launch({ agent, token: agentToken }) {
+  async function launch({ agent, token: agentToken, memory }) {
     if (processes.has(agent.id)) return;
     let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const instructions = await agentInstructions(agent);
+      const instructions = await agentInstructions(agent, memory || []);
       sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
       const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
       await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
@@ -94,6 +94,18 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
         } else if (msg.type === 'sync') {
           try { send({ type: 'result', requestId: msg.requestId, result: await syncRepository(root, msg.input) }); }
           catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
+        } else if (msg.type === 'remove-artifacts') {
+          try {
+            const removed = [], missing = [];
+            for (const item of msg.items || []) {
+              if (item.kind !== 'file' && item.kind !== 'dir') { missing.push(item.ref); continue; }
+              const resolved = await insideRoot(root, item.ref);
+              let present = true;
+              try { await stat(resolved); } catch { present = false; }
+              if (present) { await rm(resolved, { recursive: true }); removed.push(resolved); } else missing.push(item.ref);
+            }
+            send({ type: 'result', requestId: msg.requestId, result: { removed, missing } });
+          } catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
         }
       } catch (error) { log(`Runner: ${error.message}`); }
     });

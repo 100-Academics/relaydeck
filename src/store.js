@@ -11,7 +11,7 @@ export const equal = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
+export const tools = ['agents', 'rooms', 'room_history', 'task', 'remember', 'memory', 'artifact', 'artifacts', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
 export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
@@ -23,8 +23,9 @@ export class Store {
     const row = this.db.prepare('SELECT data FROM workspace WHERE id=1').get();
     this.data = row ? JSON.parse(row.data) : {
       adminToken: secret(), devices: [], agents: [], groups: [{ id: 'team', name: 'Team room', members: [] }],
-      messages: [], activity: [], councils: [], settings: Object.fromEntries(tools.map(t => [t, true])),
+      messages: [], activity: [], councils: [], memory: [], artifacts: [], settings: Object.fromEntries(tools.map(t => [t, true])),
     };
+    this.data.memory ??= []; this.data.artifacts ??= [];
     for (const d of this.data.devices) d.online = false;
     for (const tool of tools) this.data.settings[tool] ??= true;
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
@@ -84,6 +85,7 @@ export class Store {
       devices: this.data.devices.map(({ tokenHash, ...d }) => d),
       agents: this.data.agents.map(({ tokenHash, ...a }) => a),
       groups: this.data.groups, messages: this.data.messages, councils: this.data.councils,
+      memory: this.data.memory, artifacts: this.data.artifacts,
       activity: this.data.activity.slice(-200), settings: this.data.settings,
     };
   }
@@ -120,6 +122,27 @@ export class Store {
     return a;
   }
   unread(agentId) { return this.data.messages.filter(m => m.recipients.includes(agentId) && !m.readBy.includes(agentId)); }
+  remember(actor, body) {
+    const text = str(body, 'Memory note', 2000);
+    const entry = { id: id(), body: text, by: actor.name, at: new Date().toISOString() };
+    this.data.memory.push(entry); this.data.memory = this.data.memory.slice(-500);
+    this.activity(actor.id, 'remember', text.slice(0, 240));
+    return entry;
+  }
+  forget(actor, memoryId) {
+    const index = this.data.memory.findIndex(m => m.id === memoryId);
+    fail(index >= 0, 'Memory not found.', 404);
+    this.data.memory.splice(index, 1); this.save();
+  }
+  artifact(actor, input) {
+    fail(['file', 'dir', 'service', 'port'].includes(input.kind), 'Choose file, dir, service, or port.');
+    const ref = input.kind === 'port' ? Number(input.ref) : str(input.ref, 'Artifact reference', 500);
+    if (input.kind === 'port') fail(Number.isInteger(ref) && ref > 0 && ref < 65536, 'Port must be a number from 1 to 65535.');
+    const entry = { id: id(), kind: input.kind, ref, note: typeof input.note === 'string' ? input.note.slice(0, 500) : '', by: actor.name, byId: actor.id, at: new Date().toISOString() };
+    this.data.artifacts.push(entry); this.data.artifacts = this.data.artifacts.slice(-1000);
+    this.activity(actor.id, 'artifact', `${input.kind}: ${ref}`);
+    return entry;
+  }
   send(actor, input) {
     const type = input.type === 'notice' ? 'notice' : 'message';
     fail(input.type === type, 'Choose message or notice.');
@@ -167,6 +190,10 @@ export class Store {
       fail(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'History limit must be between 1 and 100.');
       result = this.data.messages.filter(m => m.groupId === g.id).slice(-limit);
     }
+    else if (name === 'remember') result = this.remember(actor, input.body);
+    else if (name === 'memory') result = this.data.memory;
+    else if (name === 'artifact') result = this.artifact(actor, input);
+    else if (name === 'artifacts') result = this.data.artifacts;
     else if (name === 'task') {
       const a = this.data.agents.find(a => a.id === (actor.role === 'agent' ? actor.id : input.agentId));
       fail(a, 'Agent not found.', 404); fail(actor.role === 'agent' || this.canControl(actor, a), 'Not allowed.', 403);
