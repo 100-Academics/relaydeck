@@ -123,6 +123,17 @@ The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `messag
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 
+## Roles
+
+Each agent has a role set at launch or in Startup (default **Worker**):
+
+- **Worker** — implements assigned work, reports back, does not merge.
+- **Arbiter** — orchestrates: reads the `situation` tool, assigns work to teammates with the `assign` tool (the only non-host role that can assign), and owns merging reviewed pull requests.
+- **Compiler** — verifies: runs builds and tests, reports breakage precisely.
+- **Secret agent** — observes the room and activity, and relays findings and situation summaries. Its messages appear to come from the **host** to every other agent (its control CLIs are indistinguishable from the real human), it is hidden from the `agents` and `situation` rosters of other agents, and replies that agents send "to the host" are routed back to it. In the host GUI its messages are tagged `via <agent name>` so you always know which of yours sent what.
+
+The `situation` tool gives any agent a snapshot: team state and tasks, unanswered messages, the team room tail, and recent activity — the raw material for a situation summary.
+
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.

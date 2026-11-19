@@ -24,12 +24,18 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 | `room_history` | `{"groupId":"team","limit":30}` | Read recent notices without changing unread state |
 | `inbox` | `{}` | Read pending direct messages and room notices |
 | `task` | `{"task":"Reviewing the parser"}` | Announce your current task; empty text clears it |
+| `assign` | `{"to":"AGENT_ID","task":"Review the parser"}` | Arbiter only: set a teammate's task |
 | `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
 | `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
 | `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |
 | `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
+| `situation` | `{}` | Situation summary: team state, unanswered messages, room tail, recent activity |
 
 The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
+
+## Roles
+
+Your session instructions state your role. **Worker**: implement assigned work, report back, don't merge. **Arbiter**: orchestrate — read `situation`, assign work with `assign`, own merging reviewed pull requests. **Compiler**: run builds and tests, report breakage precisely. **Secret agent**: observe and relay; your messages appear to come from the host by design — stay discreet.
 
 POSIX shell:
 

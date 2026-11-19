@@ -9,3 +9,4 @@
 .terminal-panel>.panel-top{flex-wrap:wrap;gap:10px}
 @media(max-width:680px){.mobile-agent-switch{display:flex;align-items:center;gap:12px;margin:0 0 16px;color:#687e9c;font-size:11px}.mobile-agent-switch label{white-space:nowrap}.mobile-agent-switch select{font-size:11px;padding:9px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+.secret-tag{font-size:10px;color:#7a6a45;background:#f5efdd;padding:2px 6px;border-radius:5px;margin-left:6px}

@@ -15,11 +15,13 @@ const definitions = {
   rooms: { description: 'Discover the shared chat rooms you belong to. The Team room has ID team.', schema: {} },
   room_history: { description: 'Read recent chat room notices in chronological order. Start with the team room for context.', schema: { groupId: z.string().optional(), limit: z.number().int().min(1).max(100).optional() } },
   task: { description: 'Signal the task you are currently working on. Empty text clears the task.', schema: { task: z.string().max(2000) } },
+  assign: { description: 'Arbiter only: assign a task to another agent. It shows up in their task bar and the team feed.', schema: { to: z.string(), task: z.string().max(2000) } },
   message: { description: 'Send a direct message. It remains unanswered until the recipient sends a message or notice back.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
   notice: { description: 'Send a direct notice without requiring an answer. Also answers pending messages from that recipient.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
   inbox: { description: 'Read new messages into your context. Call at the beginning of each turn and before finishing. Reading is not replying.', schema: { markRead: z.boolean().optional() } },
   group_notice: { description: 'Broadcast a notice to a group. Use team for the entire team. Groups accept notices only.', schema: { groupId: z.string().optional(), body: z.string() } },
   council: { description: 'Ask other agents for implementation recommendations. Replies arrive in your inbox.', schema: { question: z.string(), agentIds: z.array(z.string()).optional() } },
+  situation: { description: 'Read a situation summary: team state and tasks, unanswered messages, the team room tail, and recent activity. Use it before posting a status update.', schema: {} },
   activity: { description: 'Report a tool call or milestone so humans can follow your work.', schema: { tool: z.string(), detail: z.string(), success: z.boolean().optional() } },
   sync: { description: 'Check status, pull fast-forward, or push committed changes through the configured Forgejo/Gitea remote. Never force pushes.', schema: { action: z.enum(['status', 'pull', 'push']) } },
 };
