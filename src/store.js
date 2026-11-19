@@ -25,6 +25,9 @@ export class Store {
       adminToken: secret(), devices: [], agents: [], groups: [{ id: 'team', name: 'Team room', members: [] }],
       messages: [], activity: [], councils: [], settings: Object.fromEntries(tools.map(t => [t, true])),
     };
+    // Volatile per-agent runtime state (never persisted): when output last
+    // arrived and whether the watchdog has flagged the agent as stalled.
+    this.runtime = { lastOutput: new Map(), stalled: new Map() };
     for (const d of this.data.devices) d.online = false;
     for (const tool of tools) this.data.settings[tool] ??= true;
     this.data.pinned ??= [];
@@ -83,9 +86,8 @@ export class Store {
     return {
       viewer: actor,
       devices: this.data.devices.map(({ tokenHash, ...d }) => d),
-      agents: this.data.agents.map(({ tokenHash, ...a }) => a),
-      groups: this.data.groups, messages: this.data.messages, councils: this.data.councils, pinned: this.data.pinned,
-      activity: this.data.activity.slice(-200), settings: this.data.settings,
+      agents: this.data.agents.map(({ tokenHash, ...a }) => ({ ...a, lastOutputAt: this.runtime.lastOutput.get(a.id) || null, stalled: this.runtime.stalled.get(a.id) === true })),
+      groups: this.data.groups, messages: this.data.messages, councils: this.data.councils, pinned: this.data.pinned,      activity: this.data.activity.slice(-200), settings: this.data.settings,
     };
   }
   canControl(actor, agent) { return actor.role === 'admin' || (actor.role === 'device' && actor.id === agent.deviceId); }
@@ -107,12 +109,14 @@ export class Store {
     fail(input.onboarding === undefined || ['auto', 'manual'].includes(input.onboarding), 'Choose automatic or manual room instructions.');
     fail(input.startupInstructions === undefined || typeof input.startupInstructions === 'string' && input.startupInstructions.length <= 12000, 'Startup instructions must be text up to 12,000 characters.');
     fail(input.delivery === undefined || ['inbox', 'terminal'].includes(input.delivery), 'Choose a valid message delivery mode.');
-    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '' };
+    fail(input.stallAfterSec === undefined || input.stallAfterSec === '' || (Number.isInteger(input.stallAfterSec) && input.stallAfterSec >= 0), 'Stall threshold must be whole seconds (0 = per-harness default).');
+    fail(input.killAfterSec === undefined || input.killAfterSec === '' || (Number.isInteger(input.killAfterSec) && input.killAfterSec >= 0), 'Hard timeout must be whole seconds (0 = off).');
+    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0 };
   }
   updateAgent(actor, agentId, input) {
     const a = this.data.agents.find(a => a.id === agentId);
     fail(a, 'Agent not found.', 404); fail(this.canControl(actor, a), 'You can only control agents on your own device.', 403);
-    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions'];
+    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'stallAfterSec', 'killAfterSec'];
     fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
     const next = this.startup({ ...a, ...input });
     fail(next.cwd === a.cwd || ['stopped', 'error'].includes(a.status), 'Stop the agent before changing its working directory.');
