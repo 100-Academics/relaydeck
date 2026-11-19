@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Relaydeck",
+  "short_name": "Relaydeck",
+  "description": "A shared workspace for agents on multiple devices — terminals, chat rooms, and coordination in one place.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#182536",
+  "background_color": "#f5f7fb",
+  "icons": [
+    { "src": "/icons/app-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/app-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/app-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

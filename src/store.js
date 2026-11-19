@@ -27,6 +27,8 @@ export class Store {
     };
     for (const d of this.data.devices) d.online = false;
     for (const tool of tools) this.data.settings[tool] ??= true;
+    // A2A (spec §11): task lifecycle + push-notification configs, persisted.
+    this.data.a2a ??= { tasks: [], push: [] };
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
     this.save();
   }
@@ -89,6 +91,60 @@ export class Store {
   }
   canControl(actor, agent) { return actor.role === 'admin' || (actor.role === 'device' && actor.id === agent.deviceId); }
   agentToken(agentId) { return createHmac('sha256', this.data.adminToken).update(`agent:${agentId}`).digest('hex'); }
+  // --- A2A (spec §11) -------------------------------------------------
+  // Tasks follow the A2A 1.0 state machine. A client's SendMessage lands in
+  // the agent's inbox as a message from "a2a"; the agent's reply to "a2a"
+  // drives the transition: notice = final answer (completed), message =
+  // question back (input-required).
+  a2aCreateTask(agent, text) {
+    const now = new Date().toISOString();
+    const task = {
+      id: id(), agentId: agent.id, status: 'working', createdAt: now, updatedAt: now,
+      messages: [{ kind: 'message', role: 'user', messageId: id(), parts: [{ kind: 'text', text: String(text).slice(0, 20000) }] }],
+      history: [{ state: 'submitted', at: now }, { state: 'working', at: now }],
+    };
+    this.data.a2a.tasks.unshift(task);
+    this.data.a2a.tasks = this.data.a2a.tasks.slice(0, 200);
+    this.activity('a2a', 'a2a', `A2A task for ${agent.name}: ${String(text).slice(0, 120)}`);
+    this.save();
+    return task;
+  }
+  a2aTask(taskId) { return this.data.a2a.tasks.find(t => t.id === taskId) || null; }
+  a2aOpenTask(agentId) { return this.data.a2a.tasks.find(t => t.agentId === agentId && ['working', 'input-required'].includes(t.status)) || null; }
+  a2aTransition(task, state, text) {
+    fail(['submitted', 'working', 'input-required', 'completed', 'canceled', 'failed'].includes(state), `Unknown A2A state: ${state}.`);
+    const now = new Date().toISOString();
+    task.status = state; task.updatedAt = now;
+    task.history.push({ state, at: now });
+    if (text != null) task.messages.push({ kind: 'message', role: state === 'input-required' ? 'user' : 'agent', messageId: id(), parts: [{ kind: 'text', text: String(text).slice(0, 20000) }] });
+    this.activity('a2a', 'a2a', `A2A task ${task.id.slice(0, 8)}: ${state}`);
+    this.save();
+    return task;
+  }
+  a2aInbound(agent, text, taskId) {
+    const message = { id: id(), from: 'a2a', fromName: 'A2A client', to: agent.id, groupId: null, type: 'message',
+      body: String(text).slice(0, 20000), recipients: [agent.id], readBy: [], answeredAt: null, replyTo: null, councilId: null, a2aTask: taskId, at: new Date().toISOString() };
+    this.data.messages.push(message); this.save();
+    return message;
+  }
+  a2aSetPush(agentId, input) {
+    fail(typeof input.url === 'string' && /^https?:\/\/\w/.test(input.url), 'Push webhook must be an http(s) URL.');
+    fail(input.token === undefined || typeof input.token === 'string' && input.token.length <= 512, 'Push token must be text up to 512 characters.');
+    const existing = this.data.a2a.push.find(p => p.agentId === agentId && (p.id === input.id || p.url === input.url));
+    if (existing) { existing.url = input.url; existing.token = input.token; this.save(); return existing; }
+    const config = { id: input.id || id(), agentId, url: input.url, token: input.token };
+    this.data.a2a.push.push(config);
+    this.data.a2a.push = this.data.a2a.push.slice(-100);
+    this.save();
+    return config;
+  }
+  a2aPushConfigs(agentId) { return this.data.a2a.push.filter(p => p.agentId === agentId); }
+  a2aDeletePush(agentId, pushId) {
+    const index = this.data.a2a.push.findIndex(p => p.agentId === agentId && p.id === pushId);
+    fail(index >= 0, 'Push config not found.', 404);
+    const [config] = this.data.a2a.push.splice(index, 1); this.save();
+    return { ...config, deleted: true };
+  }
   agent(actor, input) {
     const d = this.data.devices.find(d => d.id === input.deviceId);
     fail(d?.online, 'Choose a connected device.');
@@ -132,7 +188,7 @@ export class Store {
       fail(actor.role !== 'agent' || !g.members.length || g.members.includes(actor.id), 'You are not a member of this group.', 403);
       recipients = this.data.agents.filter(a => (!g.members.length || g.members.includes(a.id)) && a.id !== actor.id).map(a => a.id);
     } else {
-      fail(this.data.agents.some(a => a.id === input.to) || input.to === 'human' || this.data.devices.some(d => d.id === input.to), 'Recipient not found.', 404);
+      fail(this.data.agents.some(a => a.id === input.to) || input.to === 'human' || input.to === 'a2a' || this.data.devices.some(d => d.id === input.to), 'Recipient not found.', 404);
       fail(input.to !== actor.id, 'Choose another participant.');
       recipients = [input.to];
     }

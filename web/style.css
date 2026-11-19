@@ -9,3 +9,5 @@
 .terminal-panel>.panel-top{flex-wrap:wrap;gap:10px}
 @media(max-width:680px){.mobile-agent-switch{display:flex;align-items:center;gap:12px;margin:0 0 16px;color:#687e9c;font-size:11px}.mobile-agent-switch label{white-space:nowrap}.mobile-agent-switch select{font-size:11px;padding:9px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+
+.quality-slot{display:inline-flex;align-items:center;gap:7px;margin-left:auto}.quality-slot label{font-size:9px;color:#7e93af;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}.quality-slot select{width:auto;font-size:10px;font-weight:600;background:#2b3c52;border:1px solid #3c4b62;color:#cdd9ea;padding:3px 8px;border-radius:5px}.tool-list + .tool-list{margin-top:16px}

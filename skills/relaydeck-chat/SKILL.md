@@ -31,6 +31,13 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 
 The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
 
+## A2A client messages
+
+Messages from **A2A client** arrive over the standard A2A protocol (an external system talking to you). Reply to them with the recipient ID `a2a`:
+
+- Your final answer: the `notice` tool with `to: "a2a"` — a notice requests no further reply, so the task completes.
+- A question back to the client: the `message` tool with `to: "a2a"` — the task waits for the client's answer, which arrives as another A2A message.
+
 POSIX shell:
 
 ```sh
