@@ -12,6 +12,7 @@ export const equal = (a, b) => {
   return left.length === right.length && timingSafeEqual(left, right);
 };
 export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
+export const envKey = value => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
@@ -23,8 +24,9 @@ export class Store {
     const row = this.db.prepare('SELECT data FROM workspace WHERE id=1').get();
     this.data = row ? JSON.parse(row.data) : {
       adminToken: secret(), devices: [], agents: [], groups: [{ id: 'team', name: 'Team room', members: [] }],
-      messages: [], activity: [], councils: [], settings: Object.fromEntries(tools.map(t => [t, true])),
+      messages: [], activity: [], councils: [], proxyServices: [], settings: Object.fromEntries(tools.map(t => [t, true])),
     };
+    this.data.proxyServices ??= [];
     for (const d of this.data.devices) d.online = false;
     for (const tool of tools) this.data.settings[tool] ??= true;
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
@@ -84,6 +86,7 @@ export class Store {
       devices: this.data.devices.map(({ tokenHash, ...d }) => d),
       agents: this.data.agents.map(({ tokenHash, ...a }) => a),
       groups: this.data.groups, messages: this.data.messages, councils: this.data.councils,
+      proxyServices: this.data.proxyServices.map(({ value, ...s }) => ({ ...s, masked: true })), proxyAddress: this.proxyAddress || null,
       activity: this.data.activity.slice(-200), settings: this.data.settings,
     };
   }
@@ -106,12 +109,16 @@ export class Store {
     fail(input.onboarding === undefined || ['auto', 'manual'].includes(input.onboarding), 'Choose automatic or manual room instructions.');
     fail(input.startupInstructions === undefined || typeof input.startupInstructions === 'string' && input.startupInstructions.length <= 12000, 'Startup instructions must be text up to 12,000 characters.');
     fail(input.delivery === undefined || ['inbox', 'terminal'].includes(input.delivery), 'Choose a valid message delivery mode.');
-    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '' };
+    fail(input.env === undefined || (input.env === null || typeof input.env === 'object' && !Array.isArray(input.env)
+      && Object.keys(input.env).length <= 50
+      && Object.entries(input.env).every(([k, v]) => envKey(k) && (v === null || typeof v === 'string' && v.length <= 8192))), 'Environment variables must be KEY=VALUE pairs (max 50, keys A–Z, a–z, 0–9, _).');
+    fail(input.proxy === undefined || typeof input.proxy === 'boolean', 'Proxy must be true or false.');
+    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', env: Object.fromEntries(Object.entries(input.env || {}).map(([k, v]) => [k, v === null ? '' : v])), proxy: !!input.proxy };
   }
   updateAgent(actor, agentId, input) {
     const a = this.data.agents.find(a => a.id === agentId);
     fail(a, 'Agent not found.', 404); fail(this.canControl(actor, a), 'You can only control agents on your own device.', 403);
-    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions'];
+    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'env', 'proxy'];
     fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
     const next = this.startup({ ...a, ...input });
     fail(next.cwd === a.cwd || ['stopped', 'error'].includes(a.status), 'Stop the agent before changing its working directory.');
@@ -120,6 +127,26 @@ export class Store {
     return a;
   }
   unread(agentId) { return this.data.messages.filter(m => m.recipients.includes(agentId) && !m.readBy.includes(agentId)); }
+  addProxyService(actor, input) {
+    fail(actor.role === 'admin', 'Only the host can manage proxy services.', 403);
+    const service = { id: id(), name: str(input.name, 'Service name', 80), host: str(input.host, 'Service host', 200), header: str(input.header || 'Authorization', 'Header name', 120), value: str(input.value, 'Credential value', 4000), at: new Date().toISOString() };
+    fail(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(service.header), 'Header name must be a valid HTTP token.');
+    this.data.proxyServices.push(service); this.data.proxyServices = this.data.proxyServices.slice(-100);
+    this.activity(actor.id, 'proxy', `Added credential service ${service.name} for ${service.host}`); this.save();
+    return { ...service, value: undefined, masked: true };
+  }
+  removeProxyService(actor, serviceId) {
+    fail(actor.role === 'admin', 'Only the host can manage proxy services.', 403);
+    const index = this.data.proxyServices.findIndex(s => s.id === serviceId);
+    fail(index >= 0, 'Proxy service not found.', 404);
+    this.data.proxyServices.splice(index, 1);
+    this.activity(actor.id, 'proxy', 'Removed a credential service'); this.save();
+  }
+  proxyServiceFor(agent, hostname) {
+    const a = this.data.agents.find(x => x.id === agent.id);
+    if (!a?.proxy) return null;
+    return this.data.proxyServices.find(s => s.host === hostname) || null;
+  }
   send(actor, input) {
     const type = input.type === 'notice' ? 'notice' : 'message';
     fail(input.type === type, 'Choose message or notice.');

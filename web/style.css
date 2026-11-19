@@ -9,3 +9,15 @@
 .terminal-panel>.panel-top{flex-wrap:wrap;gap:10px}
 @media(max-width:680px){.mobile-agent-switch{display:flex;align-items:center;gap:12px;margin:0 0 16px;color:#687e9c;font-size:11px}.mobile-agent-switch label{white-space:nowrap}.mobile-agent-switch select{font-size:11px;padding:9px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+.env-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr) auto auto;gap:6px;align-items:center}
+.env-row input{width:100%;font-size:12px;padding:8px 10px;min-width:0}
+[data-env-wrap]{display:grid;gap:6px}
+[data-env-wrap] .text-button{justify-self:start}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:12px;cursor:pointer}
+.check input{width:14px;accent-color:var(--blue);margin-top:1px}
+.proxy-panel{margin-top:22px}
+.proxy-form{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+.proxy-list{display:grid;gap:8px;margin-top:14px}
+.proxy-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.proxy-item small{color:var(--muted);font-family:"Cascadia Code",Consolas,monospace;font-size:11px}
+@media(max-width:700px){.proxy-form{grid-template-columns:1fr}}

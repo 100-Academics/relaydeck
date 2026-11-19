@@ -5,6 +5,13 @@ import path from 'node:path';
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
 export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity'];
 
+// Shared by the runner (session skill) and the Agent skill endpoint so both
+// describe the credential proxy identically.
+export function proxyInstructions(proxy) {
+  if (!proxy?.address || !proxy.services?.length) return '';
+  return `\n\n## Credential proxy\n\nFor requests to ${proxy.services.join(', ')}, route them through the Relaydeck credential proxy: set http_proxy and https_proxy to ${proxy.address}, and add the header <code>X-Relaydeck-Agent</code> with your agent key (the RELAYDECK_AGENT_TOKEN from your environment). The proxy injects the real service credential, which is never visible in your shell. Example: curl -x ${proxy.address} -H "X-Relaydeck-Agent: <agent-key>" -H "Authorization: Bearer <agent-key>" https://HOST/…\n`;
+}
+
 export async function agentInstructions(agent) {
   const skill = await readFile(skillPath, 'utf8');
   return `${skill}\n\n## This session\n\nYour Relaydeck name is ${JSON.stringify(agent.name)}; your ID is ${JSON.stringify(agent.id)}. Use the inherited bridge credentials for this identity.\n${agent.startupInstructions ? `\n## Instructions from your operator\n\n${agent.startupInstructions}\n` : ''}`;
