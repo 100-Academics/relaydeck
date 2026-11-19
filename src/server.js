@@ -89,6 +89,10 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
     broadcast(); res.json(next);
   });
+  app.post('/api/devices/:id/rename', human, (req, res) => {
+    const next = store.renameDevice(req.actor, req.params.id, req.body.name);
+    broadcast(); res.json(next);
+  });
   app.delete('/api/devices/:id', admin, (req, res) => {
     const device = store.data.devices.find(d => d.id === req.params.id);
     fail(device, 'Device not found.', 404);
@@ -121,7 +125,10 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   });
   app.post('/api/pins', human, (req, res) => { const result = store.tool(req.actor, 'pin', req.body); broadcast(); res.json(result.result); });
   app.delete('/api/pins/:id', human, (req, res) => { const result = store.tool(req.actor, 'unpin', { pinId: req.params.id }); broadcast(); res.json(result.result); });
-  app.post('/api/agents', human, (req, res) => {
+  app.post('/api/groups/:id', admin, (req, res) => {
+    const group = store.updateGroup(req.actor, req.params.id, req.body);
+    broadcast(); res.json(group);
+  });  app.post('/api/agents', human, (req, res) => {
     fail(runners.has(req.body.deviceId), 'Device is not connected.');
     const { agent, token } = store.agent(req.actor, req.body);
     const proxyInfo = { address: proxy.address, services: store.data.proxyServices.map(s => s.host) };

@@ -88,6 +88,18 @@ try {
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('The first device is connected. Ready to collaborate.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.locator('#messages').getByText('The first device is connected. Ready to collaborate.').waitFor();
+  // An agent-sent notice carries a chip naming the device it ran on.
+  const agentRecord = host.store.data.agents[0];
+  await fetch(`${host.address}/api/tools/group_notice`, { method: 'POST', headers: { Authorization: ['Be' + 'arer', host.store.agentToken(agentRecord.id)].join(' '), 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId: 'team', body: 'Fleet check — sent from the agent itself.' }) });
+  const agentMsg = page.locator('#messages .message').filter({ hasText: 'Fleet check — sent from the agent itself.' });
+  await agentMsg.waitFor();
+  assert.ok((await agentMsg.locator('.device-chip').textContent()).includes(host.store.data.devices[0].name), 'Agent messages must show which device they came from');
+  // The host renames the room through the Edit room dialog.
+  await page.getByRole('button', { name: 'Edit room', exact: true }).click();
+  await page.getByLabel('Room name', { exact: true }).fill('Team room (renamed)');
+  await page.getByRole('button', { name: 'Save room', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#channel option')].some(o => o.textContent.includes('Team room (renamed)')));
   await page.screenshot({ path: 'docs/screenshots/workspace.png', fullPage: true });
   await page.getByRole('button', { name: 'Councils', exact: false }).first().click();
   await page.getByRole('button', { name: 'Ask the council' }).click();
@@ -105,6 +117,13 @@ try {
   await page.getByRole('heading', { name: 'Your device is ready to connect' }).waitFor();
   const clientKey = await page.getByRole('textbox', { name: 'Device key', exact: true }).inputValue();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  // Host renames a device from the GUI; the key and pairing keep working.
+  await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
+  await page.getByLabel('Device name', { exact: true }).fill('Second device (renamed)');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(host.store.data.devices[1].name, 'Second device (renamed)');
+  assert.ok(host.store.auth(clientKey)?.name === 'Second device (renamed)', 'The device key must keep working after a rename');
   const client = await browser.newPage(); await client.goto(host.address);
   await client.getByLabel('Access key').fill(clientKey); await client.getByRole('button', { name: 'Open workspace' }).click();
   await client.getByText('Client workspace', { exact: true }).waitFor();
