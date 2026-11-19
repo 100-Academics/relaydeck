@@ -81,6 +81,10 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
     broadcast(); res.json(next);
   });
+  app.post('/api/devices/:id/rename', human, (req, res) => {
+    const next = store.renameDevice(req.actor, req.params.id, req.body.name);
+    broadcast(); res.json(next);
+  });
   app.delete('/api/devices/:id', admin, (req, res) => {
     const device = store.data.devices.find(d => d.id === req.params.id);
     fail(device, 'Device not found.', 404);
@@ -108,6 +112,10 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     fail(Array.isArray(members) && members.every(v => store.data.agents.some(a => a.id === v)), 'Choose valid group members.');
     const group = { id: id(), name: str(req.body.name, 'Group name', 80), members: [...new Set(members)] };
     store.data.groups.push(group); store.save(); broadcast(); res.json(group);
+  });
+  app.post('/api/groups/:id', admin, (req, res) => {
+    const group = store.updateGroup(req.actor, req.params.id, req.body);
+    broadcast(); res.json(group);
   });
   app.post('/api/agents', human, (req, res) => {
     fail(runners.has(req.body.deviceId), 'Device is not connected.');

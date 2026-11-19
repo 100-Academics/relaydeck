@@ -11,7 +11,7 @@ export const equal = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
+export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'room_update', 'sync'];
 export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
@@ -49,6 +49,32 @@ export class Store {
     d.online = false;
     this.save();
     return { ...d, token, tokenHash: undefined };
+  }
+  renameDevice(actor, deviceId, name) {
+    const d = this.data.devices.find(d => d.id === deviceId);
+    fail(d, 'Device not found.', 404);
+    fail(actor.role === 'admin' || (actor.role === 'device' && actor.id === deviceId), 'You can only rename your own device.', 403);
+    d.name = str(name, 'Device name', 80);
+    this.activity(actor.id, 'rename', `Renamed device to ${d.name}`);
+    this.save();
+    return { ...d, tokenHash: undefined };
+  }
+  updateGroup(actor, groupId, input) {
+    fail(actor.role === 'admin', 'Only the host can edit rooms.', 403);
+    const g = this.data.groups.find(g => g.id === groupId);
+    fail(g, 'Group not found.', 404);
+    if (input.name !== undefined) g.name = str(input.name, 'Room name', 80);
+    if (input.add !== undefined || input.remove !== undefined) {
+      fail(g.id !== 'team', 'The Team room includes every agent; membership cannot be edited.');
+      const list = ids => Array.isArray(ids) ? ids : [];
+      const known = ids => list(ids).every(v => this.data.agents.some(a => a.id === v));
+      fail(known(input.add) && known(input.remove), 'Choose agents that exist.');
+      for (const a of list(input.add)) if (!g.members.includes(a)) g.members.push(a);
+      for (const r of list(input.remove)) g.members = g.members.filter(m => m !== r);
+    }
+    this.activity(actor.id, 'room_update', `Updated the ${g.name} room`);
+    this.save();
+    return g;
   }
   removeDevice(deviceId) {
     const index = this.data.devices.findIndex(d => d.id === deviceId);
@@ -185,6 +211,9 @@ export class Store {
       this.data.councils.push(c);
       for (const a of participants) this.send(actor, { to: a.id, type: 'message', body: `[Council] ${question}\nReply to ${actor.id} with your recommendation.`, councilId: c.id });
       result = c;
+    } else if (name === 'room_update') {
+      const groupId = str(input.groupId, 'Room ID', 100);
+      result = this.updateGroup(actor, groupId, { name: input.name, add: input.add, remove: input.remove });
     } else if (name === 'activity') {
       this.activity(actor.id, str(input.tool, 'Tool name', 120), str(input.detail, 'Detail', 4000), input.success !== false); result = { recorded: true };
     } else fail(false, 'Sync must be dispatched to a device.');

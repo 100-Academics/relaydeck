@@ -14,6 +14,7 @@ const definitions = {
   agents: { description: 'List the team, current tasks, device, harness, and lifecycle state.', schema: {} },
   rooms: { description: 'Discover the shared chat rooms you belong to. The Team room has ID team.', schema: {} },
   room_history: { description: 'Read recent chat room notices in chronological order. Start with the team room for context.', schema: { groupId: z.string().optional(), limit: z.number().int().min(1).max(100).optional() } },
+  room_update: { description: 'Rename a group room or add/remove agent members. Host key required; agents are rejected.', schema: { groupId: z.string(), name: z.string().optional(), add: z.array(z.string()).optional(), remove: z.array(z.string()).optional() } },
   task: { description: 'Signal the task you are currently working on. Empty text clears the task.', schema: { task: z.string().max(2000) } },
   message: { description: 'Send a direct message. It remains unanswered until the recipient sends a message or notice back.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
   notice: { description: 'Send a direct notice without requiring an answer. Also answers pending messages from that recipient.', schema: { to: z.string(), body: z.string(), replyTo: z.string().optional() } },
