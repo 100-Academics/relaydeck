@@ -6,7 +6,7 @@ import { realpath, mkdtemp, writeFile, rm, appendFile, stat } from 'node:fs/prom
 import { promisify } from 'node:util';
 import { insideRoot, syncRepository } from './sync.js';
 import { options, openBrowser, clientGuiUrl } from './runtime.js';
-import { agentInstructions, onboardingLaunch } from './onboarding.js';
+import { agentInstructions, onboardingLaunch, proxyInstructions } from './onboarding.js';
 
 const bridgePath = fileURLToPath(new URL('./bridge.js', import.meta.url));
 const workerPath = fileURLToPath(new URL('./pty-worker.js', import.meta.url));
@@ -37,19 +37,23 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
   };
   const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
   const status = (agentId, state, error, exitCode, extra = {}) => send({ type: 'status', agentId, status: state, error, exitCode, ...extra });
-  async function launch({ agent, token: agentToken, pinned, memory }) {    if (processes.has(agent.id)) return;
+  async function launch({ agent, token: agentToken, pinned, memory, proxy: proxyInfo }) {
+    if (processes.has(agent.id)) return;
     let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const instructions = await agentInstructions(agent, [...(pinned || []), ...(memory || [])]);      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
-      const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
+      const baseInstructions = await agentInstructions(agent, [...(pinned || []), ...(memory || [])]);
+      const proxyEnabled = !!(agent.proxy && proxyInfo?.address);
+      const instructions = proxyEnabled ? baseInstructions + proxyInstructions(proxyInfo) : baseInstructions;
+      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));      const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
       await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
       const mailPath = path.join(sessionDirectory, 'MAIL.md');
       await writeFile(mailPath, '# Relaydeck mail\n\nMessages are appended here as they arrive. Re-read this file before starting each task.\n', { encoding: 'utf8', mode: 0o600 });
       const onboarding = onboardingLaunch(agent, instructions, process.env, instructionsPath, mailPath);
       log(`${agent.name || agent.id}: instruction injection via ${onboarding.injection}`);
       const launchCommand = await executable(agent.command, onboarding.args);
-      const env = { ...onboarding.env, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
+      const proxyEnv = proxyEnabled ? { http_proxy: proxyInfo.address, https_proxy: proxyInfo.address, HTTP_PROXY: proxyInfo.address, HTTPS_PROXY: proxyInfo.address } : {};
+      const env = { ...onboarding.env, ...(agent.env || {}), ...proxyEnv, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
       // Do not let child harnesses inherit host or runner credentials.
       delete env.RELAYDECK_TOKEN; delete env.RELAYDECK_DEVICE_TOKEN; delete env.RELAYDECK_ADMIN_TOKEN;
       delete env.AMOEBA_TOKEN; delete env.AMOEBA_DEVICE_TOKEN; delete env.AMOEBA_ADMIN_TOKEN;

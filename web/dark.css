@@ -81,4 +81,5 @@
 [data-theme=dark] .liveness.stalled{background:#43232a;color:#d98a95}[data-theme=dark] .secret-tag{background:#3a3120;color:#cfa95c}
 [data-theme=dark] .artifact-kind{background:#17362c;color:#5db895}
 [data-theme=dark] button.danger{background:#a64949}
-[data-theme=dark] button.danger:hover{background:#b55656}
+[data-theme=dark] button.danger:hover{background:#b55656}.proxy-item { background: #16233a; }
+[data-theme="dark"] .proxy-item { background: #16233a; }

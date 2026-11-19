@@ -8,7 +8,8 @@ import { Store, id, secret, fail, str, tools } from './store.js';
 import { startRunner } from './runner.js';
 import { options, openBrowser } from './runtime.js';
 import { migrateWorkspace } from './migration.js';
-import { agentInstructions } from './onboarding.js';
+import { agentInstructions, proxyInstructions } from './onboarding.js';
+import { startCredentialProxy } from './proxy.js';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false, watchdogMs = 20000 } = {}) {
@@ -29,6 +30,13 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const runners = new Map(), browsers = new Map(), buffers = new Map(), sessions = new Map(), pending = new Map(), tickets = new Map(), attempts = new Map();
   let localRunner, closing = false;
+  // Credential proxy: runs in the host process, outside every agent harness.
+  const proxy = await startCredentialProxy({
+    authenticate: async token => { const actor = await store.auth(token); return actor && actor.role === 'agent' ? actor : null; },
+    serviceFor: (agent, hostname) => store.proxyServiceFor(agent, hostname),
+    host,
+  });
+  store.proxyAddress = proxy.address;
   const broadcast = () => { for (const [ws, actor] of browsers) if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state: store.snapshot(actor) })); };
   const actorFor = req => {
     const bearer = req.headers.authorization?.replace(/^Bearer /, '');
@@ -103,6 +111,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [key, value] of Object.entries(req.body)) { fail(tools.includes(key) && typeof value === 'boolean', 'Unknown tool setting.'); store.data.settings[key] = value; }
     store.activity(req.actor.id, 'settings', 'Updated enabled tools'); store.save(); broadcast(); res.json(store.data.settings);
   });
+  app.post('/api/proxy/services', admin, (req, res) => { broadcast(); res.json(store.addProxyService(req.actor, req.body)); });
+  app.delete('/api/proxy/services/:id', admin, (req, res) => { store.removeProxyService(req.actor, req.params.id); store.save(); broadcast(); res.json({ ok: true }); });
   app.post('/api/groups', human, (req, res) => {
     const members = req.body.members || [];
     fail(Array.isArray(members) && members.every(v => store.data.agents.some(a => a.id === v)), 'Choose valid group members.');
@@ -114,8 +124,9 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   app.post('/api/agents', human, (req, res) => {
     fail(runners.has(req.body.deviceId), 'Device is not connected.');
     const { agent, token } = store.agent(req.actor, req.body);
-    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token, pinned: store.data.pinned, memory: store.data.memory }));    broadcast(); res.json({ ...agent, tokenHash: undefined });
-  });
+    const proxyInfo = { address: proxy.address, services: store.data.proxyServices.map(s => s.host) };
+    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token, pinned: store.data.pinned, memory: store.data.memory, proxy: proxyInfo }));
+    broadcast(); res.json({ ...agent, tokenHash: undefined });  });
   function controlled(req) {
     const a = store.data.agents.find(a => a.id === req.params.id);
     fail(a, 'Agent not found.', 404); fail(store.canControl(req.actor, a), 'You can only control agents on your own device.', 403); return a;
@@ -129,8 +140,9 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     broadcast(); res.json({ ...a, tokenHash: undefined });
   });
   app.get('/api/agents/:id/instructions', human, async (req, res) => {
-    res.json({ instructions: await agentInstructions(controlled(req), [...store.data.pinned, ...store.data.memory]) });
-  });
+    const a = controlled(req);
+    const base = await agentInstructions(a, [...store.data.pinned, ...store.data.memory]);
+    res.json({ instructions: a.proxy ? base + proxyInstructions({ address: proxy.address, services: store.data.proxyServices.map(s => s.host) }) : base });  });
   app.get('/api/agents/:id/terminal', human, (req, res) => {
     const a = controlled(req);
     const text = buffers.get(a.id) || '';
@@ -140,8 +152,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');
     fail(!['running', 'starting'].includes(a.status), 'Stop the current process before restarting.');
     a.status = 'starting'; a.error = undefined; a.exitCode = undefined; buffers.delete(a.id);
-    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id), pinned: store.data.pinned, memory: store.data.memory })); broadcast(); res.json({ ok: true });  });
-  app.get('/api/agents/:id/bridge', human, (req, res) => {
+    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id), pinned: store.data.pinned, memory: store.data.memory, proxy: { address: proxy.address, services: store.data.proxyServices.map(s => s.host) } })); broadcast(); res.json({ ok: true });
+  });  app.get('/api/agents/:id/bridge', human, (req, res) => {
     const a = controlled(req), d = store.data.devices.find(d => d.id === a.deviceId);
     const command = d.nodePath || 'node', args = [d.bridgePath || 'src/bridge.js'];
     const env = { RELAYDECK_SERVER_URL: `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`, RELAYDECK_AGENT_TOKEN: store.agentToken(a.id) };
@@ -322,13 +334,13 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     if (!store.auth(token)) { token = store.device('Host device').token; writeFileSync(file, token, { mode: 0o600 }); }
     localRunner = await startRunner({ server: address, token, root, log: quiet ? () => {} : console.log });
   }
-  if (!quiet) { console.log(`\nRelaydeck host: ${address}\nHost key: ${store.data.adminToken}\n${host === '0.0.0.0' ? 'Listening on all interfaces. Use HTTPS or a private network for remote clients.\n' : ''}`); }
-  return { app, server, store, address, ticket() { const key = secret(); tickets.set(key, { actor: { role: 'admin', id: 'human', name: 'You' }, expires: Date.now() + 60000 }); return key; }, async close() {
+  if (!quiet) { console.log(`\nRelaydeck host: ${address}\nHost key: ${store.data.adminToken}\nCredential proxy: ${proxy.address}\n${host === '0.0.0.0' ? 'Listening on all interfaces. Use HTTPS or a private network for remote clients.\n' : ''}`); }
+  return { app, server, store, address, proxy, ticket() { const key = secret(); tickets.set(key, { actor: { role: 'admin', id: 'human', name: 'You' }, expires: Date.now() + 60000 }); return key; }, async close() {
     closing = true;
     localRunner?.stop(); clearInterval(heartbeat); clearInterval(watchdog);
     for (const p of pending.values()) { clearTimeout(p.timer); p.reject(new Error('Host shutting down.')); } pending.clear();
     for (const ws of wss.clients) ws.terminate();
-    await new Promise(resolve => server.close(resolve)); wss.close(); store.close();
+    await new Promise(resolve => server.close(resolve)); await proxy.close(); wss.close(); store.close();
   } };
 }
 function hostAddress(host, port) {

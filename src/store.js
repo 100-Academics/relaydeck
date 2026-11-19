@@ -13,8 +13,9 @@ export const equal = (a, b) => {
 };
 export const tools = ['agents', 'rooms', 'room_history', 'task', 'assign', 'message', 'notice', 'question', 'inbox', 'group_notice', 'council', 'situation', 'activity', 'sync', 'pin', 'unpin', 'pins', 'remember', 'memory', 'artifact', 'artifacts'];
 export const agentRoles = ['worker', 'arbiter', 'compiler', 'secret'];
-export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
-
+export const envKey = value => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
+export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 export class Store {
   constructor(directory) {
     mkdirSync(directory, { recursive: true });
@@ -23,13 +24,13 @@ export class Store {
     const row = this.db.prepare('SELECT data FROM workspace WHERE id=1').get();
     this.data = row ? JSON.parse(row.data) : {
       adminToken: secret(), devices: [], agents: [], groups: [{ id: 'team', name: 'Team room', members: [] }],
-      messages: [], activity: [], councils: [], memory: [], artifacts: [], settings: Object.fromEntries(tools.map(t => [t, true])),
+      messages: [], activity: [], councils: [], memory: [], artifacts: [], proxyServices: [], settings: Object.fromEntries(tools.map(t => [t, true])),
     };
     // Volatile per-agent runtime state (never persisted): when output last
     // arrived and whether the watchdog has flagged the agent as stalled.
     this.runtime = { lastOutput: new Map(), stalled: new Map() };
-    this.data.memory ??= []; this.data.artifacts ??= [];    for (const d of this.data.devices) d.online = false;
-    for (const tool of tools) this.data.settings[tool] ??= true;
+    this.data.memory ??= []; this.data.artifacts ??= []; this.data.proxyServices ??= [];
+    for (const d of this.data.devices) d.online = false;    for (const tool of tools) this.data.settings[tool] ??= true;
     this.data.pinned ??= [];
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
     this.save();
@@ -89,8 +90,9 @@ export class Store {
       agents: this.data.agents.map(({ tokenHash, ...a }) => ({ ...a, lastOutputAt: this.runtime.lastOutput.get(a.id) || null, stalled: this.runtime.stalled.get(a.id) === true })),
       groups: this.data.groups, messages: this.data.messages, councils: this.data.councils, pinned: this.data.pinned,
       memory: this.data.memory, artifacts: this.data.artifacts,
-      activity: this.data.activity.slice(-200), settings: this.data.settings,    };
-  }
+      proxyServices: this.data.proxyServices.map(({ value, ...s }) => ({ ...s, masked: true })), proxyAddress: this.proxyAddress || null,
+      activity: this.data.activity.slice(-200), settings: this.data.settings,
+    };  }
   canControl(actor, agent) { return actor.role === 'admin' || (actor.role === 'device' && actor.id === agent.deviceId); }
   agentToken(agentId) { return createHmac('sha256', this.data.adminToken).update(`agent:${agentId}`).digest('hex'); }
   agent(actor, input) {
@@ -113,12 +115,17 @@ export class Store {
     fail(input.role === undefined || input.role === '' || agentRoles.includes(input.role), `Choose a valid role: ${agentRoles.join(', ')}.`);
     fail(input.stallAfterSec === undefined || input.stallAfterSec === '' || (Number.isInteger(input.stallAfterSec) && input.stallAfterSec >= 0), 'Stall threshold must be whole seconds (0 = per-harness default).');
     fail(input.killAfterSec === undefined || input.killAfterSec === '' || (Number.isInteger(input.killAfterSec) && input.killAfterSec >= 0), 'Hard timeout must be whole seconds (0 = off).');
-    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', role: input.role || 'worker', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0 };  }
+    fail(input.env === undefined || (input.env === null || typeof input.env === 'object' && !Array.isArray(input.env)
+      && Object.keys(input.env).length <= 50
+      && Object.entries(input.env).every(([k, v]) => envKey(k) && (v === null || typeof v === 'string' && v.length <= 8192))), 'Environment variables must be KEY=VALUE pairs (max 50, keys A–Z, a–z, 0–9, _).');
+    fail(input.proxy === undefined || typeof input.proxy === 'boolean', 'Proxy must be true or false.');
+    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', role: input.role || 'worker', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0, env: Object.fromEntries(Object.entries(input.env || {}).map(([k, v]) => [k, v === null ? '' : v])), proxy: !!input.proxy };
+  }
   updateAgent(actor, agentId, input) {
     const a = this.data.agents.find(a => a.id === agentId);
     fail(a, 'Agent not found.', 404); fail(this.canControl(actor, a), 'You can only control agents on your own device.', 403);
-    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'role', 'stallAfterSec', 'killAfterSec'];    fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
-    const next = this.startup({ ...a, ...input });
+    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'role', 'stallAfterSec', 'killAfterSec', 'env', 'proxy'];
+    fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');    const next = this.startup({ ...a, ...input });
     fail(next.cwd === a.cwd || ['stopped', 'error'].includes(a.status), 'Stop the agent before changing its working directory.');
     Object.assign(a, next);
     this.activity(actor.id, 'startup', `Updated startup settings for ${a.name}; command changes apply on next launch`); this.save();
@@ -153,7 +160,26 @@ export class Store {
     this.data.artifacts.push(entry); this.data.artifacts = this.data.artifacts.slice(-1000);
     this.activity(actor.id, 'artifact', `${input.kind}: ${ref}`);
     return entry;  }
-  send(actor, input) {
+  addProxyService(actor, input) {
+    fail(actor.role === 'admin', 'Only the host can manage proxy services.', 403);
+    const service = { id: id(), name: str(input.name, 'Service name', 80), host: str(input.host, 'Service host', 200), header: str(input.header || 'Authorization', 'Header name', 120), value: str(input.value, 'Credential value', 4000), at: new Date().toISOString() };
+    fail(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(service.header), 'Header name must be a valid HTTP token.');
+    this.data.proxyServices.push(service); this.data.proxyServices = this.data.proxyServices.slice(-100);
+    this.activity(actor.id, 'proxy', `Added credential service ${service.name} for ${service.host}`); this.save();
+    return { ...service, value: undefined, masked: true };
+  }
+  removeProxyService(actor, serviceId) {
+    fail(actor.role === 'admin', 'Only the host can manage proxy services.', 403);
+    const index = this.data.proxyServices.findIndex(s => s.id === serviceId);
+    fail(index >= 0, 'Proxy service not found.', 404);
+    this.data.proxyServices.splice(index, 1);
+    this.activity(actor.id, 'proxy', 'Removed a credential service'); this.save();
+  }
+  proxyServiceFor(agent, hostname) {
+    const a = this.data.agents.find(x => x.id === agent.id);
+    if (!a?.proxy) return null;
+    return this.data.proxyServices.find(s => s.host === hostname) || null;
+  }  send(actor, input) {
     const type = input.type === 'notice' ? 'notice' : input.type === 'question' ? 'question' : 'message';
     fail(input.type === undefined || ['message', 'notice', 'question'].includes(input.type), 'Choose message, notice, or question.');
     const body = str(input.body, 'Message', 20000);

@@ -5,8 +5,14 @@ import path from 'node:path';
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
 export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'pi', 'omp'];
 
-export async function agentInstructions(agent, notes = []) {
-  const skill = await readFile(skillPath, 'utf8');
+// Shared by the runner (session skill) and the Agent skill endpoint so both
+// describe the credential proxy identically.
+export function proxyInstructions(proxy) {
+  if (!proxy?.address || !proxy.services?.length) return '';
+  return `\n\n## Credential proxy\n\nFor requests to ${proxy.services.join(', ')}, route them through the Relaydeck credential proxy: set http_proxy and https_proxy to ${proxy.address}, and add the header <code>X-Relaydeck-Agent</code> with your agent key (the RELAYDECK_AGENT_TOKEN from your environment). The proxy injects the real service credential, which is never visible in your shell. Example: curl -x ${proxy.address} -H "X-Relaydeck-Agent: <agent-key>" -H "Authorization: Bearer <agent-key>" https://HOST/…\n`;
+}
+
+export async function agentInstructions(agent, notes = []) {  const skill = await readFile(skillPath, 'utf8');
   const list = Array.isArray(notes) ? notes.slice(-50) : [];
   const roles = {
     worker: '## Your role\n\nYou are a **worker**. Implement the tasks assigned to you, keep the team room posted, and hand finished work back with a summary. You do not merge pull requests.',
