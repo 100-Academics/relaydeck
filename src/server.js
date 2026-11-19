@@ -11,7 +11,7 @@ import { migrateWorkspace } from './migration.js';
 import { agentInstructions } from './onboarding.js';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
-export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false } = {}) {
+export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false, watchdogMs = 20000 } = {}) {
   fail(Number.isInteger(port) && port >= 0 && port <= 65535, 'Port must be an integer between 0 and 65535 (0 chooses an available port).');
   const app = express(), server = createServer(app);
   let ready = false, store;
@@ -130,6 +130,12 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   app.get('/api/agents/:id/instructions', human, async (req, res) => {
     res.json({ instructions: await agentInstructions(controlled(req)) });
   });
+  app.get('/api/agents/:id/terminal', human, (req, res) => {
+    const a = controlled(req);
+    const text = buffers.get(a.id) || '';
+    const tail = Math.min(Math.max(parseInt(req.query.tail, 10) || 20000, 1), 150000);
+    res.json({ bytes: text.length, text: text.slice(-tail) });
+  });
   app.post('/api/agents/:id/restart', human, (req, res) => {
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');
     fail(!['running', 'starting'].includes(a.status), 'Stop the current process before restarting.');
@@ -221,10 +227,15 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
           if (msg.type === 'output') {
             fail(typeof msg.data === 'string' && msg.data.length < 1000000, 'Invalid terminal output.');
             buffers.set(a.id, ((msg.replace ? '' : buffers.get(a.id) || '') + msg.data).slice(-150000));
+            store.runtime.lastOutput.set(a.id, Date.now());
+            if (store.runtime.stalled.get(a.id)) { store.runtime.stalled.set(a.id, false); store.activity('system', 'resumed', `${a.name} is producing output again`, true); store.save(); broadcast(); }
             for (const [browser] of browsers) if (browser.agentId === a.id && browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify({ type: 'terminal', agentId: a.id, data: msg.data, reset: !!msg.replace }));
           } else if (msg.type === 'status') {
             fail(['running', 'stopped', 'error'].includes(msg.status), 'Invalid status.');
             Object.assign(a, { status: msg.status, error: msg.error?.slice(0, 2000), exitCode: msg.exitCode });
+            a.killRequested = msg.status === 'running' ? a.killRequested : false;
+            if (msg.status === 'running' && !store.runtime.lastOutput.has(a.id)) store.runtime.lastOutput.set(a.id, Date.now());
+            if (msg.status !== 'running') { store.runtime.lastOutput.delete(a.id); store.runtime.stalled.set(a.id, false); }
             store.activity(a.id, 'process', msg.error || `${msg.status}${msg.exitCode == null ? '' : ` (exit ${msg.exitCode})`}`, msg.status !== 'error'); store.save(); broadcast();
           }
         }
@@ -243,6 +254,30 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     });
   });
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) ws.terminate(); else { ws.alive = false; ws.ping(); } } }, 15000);
+  // Watchdog: flag running agents that go silent; optionally stop them.
+  // This is the "did the harness eat the computer" guard from the glow-up.
+  const stallDefaults = { OpenCode: 120, pi: 120, omp: 120, Hermes: 180, 'Claude Code': 180, Codex: 180, Antigravity: 180 };
+  const watchdog = setInterval(() => {
+    let changed = false;
+    for (const a of store.data.agents) {
+      if (a.status !== 'running') { if (store.runtime.stalled.get(a.id)) { store.runtime.stalled.set(a.id, false); changed = true; } continue; }
+      const last = store.runtime.lastOutput.get(a.id);
+      if (!last) continue;
+      const silentSec = (Date.now() - last) / 1000;
+      const limitSec = a.stallAfterSec || stallDefaults[a.harness] || 180;
+      const stalled = silentSec > limitSec;
+      if (stalled !== !!store.runtime.stalled.get(a.id)) {
+        store.runtime.stalled.set(a.id, stalled); changed = true;
+        store.activity('system', stalled ? 'stalled' : 'resumed', `${a.name} ${stalled ? `showed no terminal output for ${Math.round(silentSec)}s` : 'is producing output again'}`, !stalled);
+      }
+      if (stalled && a.killAfterSec && silentSec >= a.killAfterSec && !a.killRequested) {
+        a.killRequested = true; changed = true;
+        runners.get(a.deviceId)?.send(JSON.stringify({ type: 'stop', agentId: a.id }));
+        store.activity('system', 'watchdog', `${a.name} was stopped by its hard timeout (${a.killAfterSec}s without output)`, false);
+      }
+    }
+    if (changed) { store.save(); broadcast(); }
+  }, watchdogMs);
   const address = hostAddress(host, server.address().port);
   ready = true;
   if (local) {
@@ -254,7 +289,7 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   if (!quiet) { console.log(`\nRelaydeck host: ${address}\nHost key: ${store.data.adminToken}\n${host === '0.0.0.0' ? 'Listening on all interfaces. Use HTTPS or a private network for remote clients.\n' : ''}`); }
   return { app, server, store, address, ticket() { const key = secret(); tickets.set(key, { actor: { role: 'admin', id: 'human', name: 'You' }, expires: Date.now() + 60000 }); return key; }, async close() {
     closing = true;
-    localRunner?.stop(); clearInterval(heartbeat);
+    localRunner?.stop(); clearInterval(heartbeat); clearInterval(watchdog);
     for (const p of pending.values()) { clearTimeout(p.timer); p.reject(new Error('Host shutting down.')); } pending.clear();
     for (const ws of wss.clients) ws.terminate();
     await new Promise(resolve => server.close(resolve)); wss.close(); store.close();

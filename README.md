@@ -123,6 +123,10 @@ The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `messag
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 
+## Agent watchdog
+
+A running agent that produces no terminal output for a while is flagged **stalled** — visible as a chip in the terminal header and an amber dot in the roster — with Stop/Restart one click away. Silent thresholds default to 120–180s per harness; override per agent in Startup with **Stall threshold** (`stallAfterSec`, empty = default). An optional **Hard timeout** (`killAfterSec`) stops the agent automatically after that long of silence — the guard against a hung harness eating the computer. The terminal buffer (last 150k characters) stays live-streamed over WebSocket and is also queryable: `GET /api/agents/:id/terminal?tail=20000`.
+
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.
