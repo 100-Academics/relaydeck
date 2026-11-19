@@ -109,8 +109,8 @@ export class Store {
     fail(input.onboarding === undefined || ['auto', 'manual'].includes(input.onboarding), 'Choose automatic or manual room instructions.');
     fail(input.startupInstructions === undefined || typeof input.startupInstructions === 'string' && input.startupInstructions.length <= 12000, 'Startup instructions must be text up to 12,000 characters.');
     fail(input.delivery === undefined || ['inbox', 'terminal'].includes(input.delivery), 'Choose a valid message delivery mode.');
-    fail(input.stallAfterSec === undefined || (Number.isInteger(input.stallAfterSec) && input.stallAfterSec >= 0), 'Stall threshold must be whole seconds (0 = per-harness default).');
-    fail(input.killAfterSec === undefined || (Number.isInteger(input.killAfterSec) && input.killAfterSec >= 0), 'Hard timeout must be whole seconds (0 = off).');
+    fail(input.stallAfterSec === undefined || input.stallAfterSec === '' || (Number.isInteger(input.stallAfterSec) && input.stallAfterSec >= 0), 'Stall threshold must be whole seconds (0 = per-harness default).');
+    fail(input.killAfterSec === undefined || input.killAfterSec === '' || (Number.isInteger(input.killAfterSec) && input.killAfterSec >= 0), 'Hard timeout must be whole seconds (0 = off).');
     return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0 };
   }
   updateAgent(actor, agentId, input) {
