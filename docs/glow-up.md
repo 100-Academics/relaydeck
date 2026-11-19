@@ -68,7 +68,7 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
   - **Arbiter:** plans, decomposes, assigns work, opens PRs, merges PRs.
   - **Worker:** implements only, does not plan. Host can link workers to a specific arbiter (worker → arbiter assignment in the GUI).
   - **Compiler:** optional; receives build/test tasks from workers when a machine cannot compile.
-  - **Secret agent:** hidden from other agents' `agents` results; can watch the last N tool calls of other agents (N configurable); can control other CLIs (input injection / restart — see decision point D2); pings agents signed **"An anonymous source"** when it catches an error; produces a full situation summary for the humans.
+  - **Secret agent:** hidden from other agents' `agents` results; can watch the last N tool calls of other agents (N configurable); **controlling a CLI means messaging it as the user** — it posts into an agent's inbox such that the agent cannot tell the message came from the secret agent rather than the normal human (sender identity is the host/human); separately, it can ping agents signed **"An anonymous source"** when it catches an error; produces a full situation summary for the humans.
   - Role-specific onboarding text (the session skill gets a role section).
 - Acceptance: a worker sees only its arbiter's assignments; a secret agent's pings carry the anonymous signature; other agents cannot list the secret agent.
 
@@ -96,13 +96,14 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 > - Deferred-call pattern: "a hook can defer a tool call and wait for additional input from the user… the run ends and the session is saved mid-call… their answer comes back as an event in the inbox… while the deferred call waits for a response, the worker can pick up other events, so the agent isn't blocked." — "I would do something a little similar. where we have a seperate like question thing in our inbox."
 
 - Spec:
-  - **Labeling:** the human DM channel is currently "Host inbox" (`web/main.js` channel picker); rename it to **"Human (host)"** and make the agent-side inbox explicitly an *agents* inbox in UI copy and docs. The human is a participant and helper, not the recipient of agent traffic.
+  - **Labeling (positive phrasing):** the inbox is labeled **"The Agents inbox"** — not "not the users inbox". Negatives read as dismissive; state what it *is*. The human is a participant who gets pulled in, not the owner of the mailbox. Rename the "Host inbox" channel (`web/main.js`) to **"Human (host)"**.
+  - **"You have mail" relay:** when an agent receives something that needs the human (a question, a mention, a stuck task), the agent relays it to the human in its own voice — "yo, you have mail — <one-line summary>" — defined in the session skill. The host surfaces the same event as a notification (next bullet), so the human is covered whether or not they're watching the agent.
   - **Pinned messages:** `pin` / `unpin` bridge tools + GUI pin action. Pinned items are always included in every `inbox` response and in the session skill — persistent reminders (project conventions, "do not touch X").
   - **Questions channel:** a first-class `question` kind, separate from messages:
     - An agent posts a question → the run can end (or the agent keeps working); the question appears in the GUI as a pending card.
     - The answer arrives as an inbox event; a new run resumes the saved session with the answer.
     - While a question is pending, the agent continues to process other inbox events — it is never blocked.
-  - **Browser notifications:** Web Notifications API for the human when: a question is pending, an agent mentions the human, an agent finishes a task or errors.
+  - **Browser notifications:** Web Notifications API for the human when: a question is pending, an agent mentions the human, an agent finishes a task or errors. Secure-context constraint: `http://127.0.0.1` / `localhost` is fine, but a LAN `http://HOST:4317` is *not* a secure context, so notifications (and PWA install) require the HTTPS reverse proxy that the README already prescribes for remote access.
 - Acceptance: a pending question survives a host restart; answering it resumes the session; the human gets a browser notification without the tab focused.
 
 ## 8. Memory & artifacts — P1
@@ -137,7 +138,8 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 - *Shipped (verify):* host regenerates device keys and removes devices — merged 2026-11-18 (`issue-1-remove-connected-devices`, `issue-2-regenerate-device-tokens`); see `docs/device-prs-verification-2026-11-18.md`.
 - Spec:
   - **Device visibility:** a device chip on every message, activity entry, and agent row; terminal headers already show the device — extend to the conversation and activity panes so a human always knows *which computer* produced what.
-  - **Editing existing agents and devices:** rename, reassign device, change role/assignment after creation (agent startup editing exists; device rename is new). *"gc" in the feedback most plausibly means agents (or group chats) — confirm with the host before implementing (D5).*
+  - **Editing existing group chats (confirmed: "gc" = group chat):** add or remove agents from an existing room after creation, host-only, from the GUI and via bridge tools.
+  - **Editing existing devices:** rename and reassign after creation (key regeneration is shipped; renaming is new).
 - Acceptance: every pane that shows agent output also shows its device; a renamed device keeps working without re-pairing.
 
 ## 11. A2A (agent-to-agent protocol) — P2
@@ -150,7 +152,9 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 
 > "also like native support for pi/omp"
 
-- First-class startup presets (executable, arguments, injection path) for the `pi` and `omp` CLIs, held to the same bar as Antigravity in the harness table of the README. Decision point D3: pin the exact CLIs and versions.
+- **`pi`** — Mario Zechner's `pi`: "AI coding assistant with read, bash, edit, write tools" (v0.85.1 on this machine, npm global). Injection: `--append-system-prompt <text>`; one-shot: `-p`; output: `--mode text|json|rpc`; extensions: `pi install <source>`.
+- **`omp`** — [oh-my-pi](https://github.com/can1357/oh-my-pi) (can1357): a coding-first fork of Pi — sessions, subagents, slash commands, extensions; all TypeScript, MIT (v18.18.3 on this machine, winget package `can1357.oh-my-pi`). Injection: `--append-system-prompt=<value>`; output: `--mode text|json|rpc|rpc-ui`; per-run overlays: `--config`.
+- First-class startup presets for both, held to the same bar as Antigravity in the README harness table. Both expose `--append-system-prompt`, so the §4 deterministic injection path applies directly, and both speak `json`/`rpc` output modes for the §2 activity feed.
 
 ## 13. Deployment — P2
 
@@ -162,7 +166,7 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 - Spec:
   - **Docker:** an official Dockerfile for the host (PTY workers in-container; document constraints and the `--data` volume).
   - **Container per agent:** optional mode where each agent runs in its own container with a bind-mounted workspace (the "fake directories") — the routing boundary in `README.md` (Storage and trust) becomes a real sandbox in this mode.
-  - **Desktop app:** evaluate a Tauri/Electron wrapper over the existing WS UI (decision point D4); verify the WebSocket replay/streaming holds up outside a browser.
+  - **Desktop-style UI, PWA first:** make the workspace an installable web app (Web Install API — `<install>` element or `navigator.install()`, with `beforeinstallprompt` fallback; see the `modern-web-guidance` skill). A standalone, installable window is the "desktop feeling" with zero new runtime to maintain. Evaluate a Tauri/Electron wrapper only if the PWA falls short (native notifications on non-Chromium, global hotkeys, managing the node process).
   - **Bandwidth slider:** a frame-rate/quality control for the terminal stream for low-bandwidth devices, with automatic degradation on high RTT.
 
 ## 14. Forgejo integration depth — P1
@@ -172,15 +176,24 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 - PRs, issues, and reviews: read in the GUI, read/write through bridge tools; the arbiter merges PRs (§6); `sync queue` in §6.
 - Keep the client thin — upstream missing features to Forgejo rather than forking behavior.
 
-## Decision points (need the host's call)
+## Decision points
 
-| # | Question | Default if unanswered |
+| # | Question | Status |
 |---|---|---|
-| D1 | A2A: full transport, or mapping spike only? | Mapping spike (§11) |
-| D2 | Secret agent CLI control: input injection only, or kill/restart too? | Input injection only |
-| D3 | `pi` / `omp`: which exact CLIs and versions? | Latest stable of each |
-| D4 | Desktop: Tauri or Electron? | Tauri (smaller runtime) |
-| D5 | Does "edit existing gc" mean agents, or group chats/rooms? | Both, if cheap |
+| D1 | A2A: full transport, or mapping spike only? | Open (default: mapping spike, §11) |
+| D2 | What "control CLIs" means for the secret agent | **Resolved:** send messages into an agent's inbox *as the user* — indistinguishable from the real human (§5) |
+| D3 | `pi` / `omp`: which CLIs and versions? | **Resolved:** `pi` 0.85.1 + `omp` (oh-my-pi) 18.18.3, both installed on this machine (§12) |
+| D4 | Desktop approach | **Reframed:** PWA install first (Web Install API); Tauri/Electron only if the PWA falls short (§13) |
+| D5 | "edit existing gc" | **Resolved:** group chats — adding agents to existing rooms (§10) |
+
+## 15. Web UI standard (applies to every UI item in this spec)
+
+All HTML/CSS/client-side JS work follows the **modern-web-guidance** skill (`D:\Dev2\.agents\skills\modern-web-guidance`): search the guidance corpus *before* implementing a pattern, retrieve the matching guide, and keep its fallbacks. Guides already scoped for this spec:
+
+- `persistent-toast-notifications` — the "you have mail" toasts (§7): `popover="manual"`, a named notification region, `ariaNotify()` with an `aria-live` fallback.
+- `install-web-app` — PWA install (§13): `<install>` / `navigator.install()` with the `beforeinstallprompt` fallback; manifest with a stable `id`.
+- `local-network-access` — GUI on LAN/loopback: LNA permission gating applies to cross-origin requests into more-private address spaces (a same-origin LAN GUI is unaffected); the secure-context requirement is what forces HTTPS for LAN notifications/PWA.
+- `dialog` / `light-dismiss-a-dialog` — question cards and confirmations (§6, §7).
 
 ## Recently shipped — verify, don't rebuild
 
