@@ -171,6 +171,18 @@ Full threat model, key hierarchy, and token handling: [SECURITY.md](SECURITY.md)
 
 Launch and sync paths are checked against each device's real workspace root, including symlinks. This is a routing boundary, **not an operating-system sandbox**: launched harnesses execute with the device user's permissions. Use separate accounts or containers if isolation is required.
 
+## Networking
+
+The transport ladder, in preference order:
+
+1. **Loopback (default).** Single machine: `http://127.0.0.1:4317`. Every feature works, including browser notifications and PWA install (browsers treat loopback as a secure context).
+2. **Tailscale mesh — recommended for multi-device fleets.** No port forwarding, no public exposure, and a stable identity per device on the mesh. Each device connects to the host's Tailscale IP; pair devices as usual from the **Devices** page. This is the simplest way to run the reference-style fleet across machines.
+3. **LAN + optional HTTPS reverse proxy.** Plain `http://` on a trusted LAN keeps all core features working. Browser notifications and PWA install additionally need a secure context — put the host behind an HTTPS reverse proxy that supports WebSockets and sets `X-Forwarded-Proto` (self-signed certificates via step-ca/ACME are acceptable).
+
+**Explicitly discouraged:** port-forwarding the relaydeck port to the internet. An unencrypted terminal control service should not be public, and Tailscale removes the need entirely.
+
+The full threat model, key hierarchy, and token handling live in [`SECURITY.md`](SECURITY.md).
+
 ## Development and verification
 
 ```sh

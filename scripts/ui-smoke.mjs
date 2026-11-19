@@ -84,6 +84,23 @@ try {
   await page.getByLabel('What is this agent working on?').fill('Validating the shared workspace and terminal connection');
   await page.getByRole('button', { name: 'Save task' }).click();
   await page.locator('#task-text').filter({ hasText: 'Validating' }).waitFor();
+  // Spec §13: the terminal stream exposes a bandwidth quality control that persists per browser.
+  const quality = page.locator('#terminal-quality');
+  assert.equal(await quality.count(), 1, 'The terminal panel must expose a stream-quality control');
+  assert.deepEqual(await quality.locator('option').allTextContents(), ['Auto', 'High', 'Balanced', 'Low'], 'Quality must offer Auto plus High/Balanced/Low');
+  await quality.selectOption('low');
+  assert.equal(await page.evaluate(() => localStorage.getItem('relaydeck-quality')), 'low', 'The quality choice must persist per browser');
+  await quality.selectOption('auto');
+  // Spec §13: PWA plumbing — manifest, service worker and icons must be served.
+  assert.ok(await page.locator('link[rel=manifest]').count(), 'The GUI must link a web app manifest');
+  for (const asset of ['/manifest.webmanifest', '/sw.js', '/icons/app-192.png', '/icons/app-512.png']) {
+    const status = await page.evaluate(async u => (await fetch(u)).status, asset);
+    assert.equal(status, 200, `${asset} must be served by the host`);
+  }
+  // Spec §13/§15: install control degrades gracefully where the browser offers no install prompt.
+  const install = page.locator('[data-action=install-app]');
+  assert.equal(await install.count(), 1, 'The sidebar must carry the install control');
+  if (await install.isVisible()) { await install.click(); await page.locator('.toast').first().waitFor(); }
   await page.getByRole('combobox', { name: 'Conversation', exact: true }).selectOption('team');
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('The first device is connected. Ready to collaborate.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
@@ -107,6 +124,7 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Ask the council' }).click();
   await page.getByRole('heading', { name: 'How should we coordinate the next milestone?' }).waitFor();
   await page.getByRole('button', { name: 'Tool controls', exact: true }).click();
+  assert.ok(await page.locator('#notifications-row input[data-notifications]').count(), 'Tool controls must expose the browser-notifications row (spec §13)');
   await page.getByRole('checkbox', { name: 'Enable council', exact: true }).uncheck();
   await page.waitForFunction(() => !document.querySelector('[data-tool=council]').checked);
   assert.equal(host.store.data.settings.council, false);

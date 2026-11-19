@@ -35,3 +35,5 @@ button.danger:hover{background:#b55656}
 .device-chip{display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#7286a9;background:#eef2f8;border:1px solid #e2e8f0;padding:2px 7px;border-radius:999px;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
 .device-chip svg{width:10px;height:10px;flex-shrink:0}
 .channel-picker .text-button{position:relative;z-index:1;margin-left:10px}
+
+.quality-slot{display:inline-flex;align-items:center;gap:7px;margin-left:auto}.quality-slot label{font-size:9px;color:#7e93af;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap}.quality-slot select{width:auto;font-size:10px;font-weight:600;background:#2b3c52;border:1px solid #3c4b62;color:#cdd9ea;padding:3px 8px;border-radius:5px}.tool-list + .tool-list{margin-top:16px}

@@ -45,6 +45,13 @@ When something needs the human — a question, a decision, a stuck task, or a re
 ## Roles
 
 Your session instructions state your role. **Worker**: implement assigned work, report back, don't merge. **Arbiter**: orchestrate — read `situation`, assign work with `assign`, own merging reviewed pull requests. **Compiler**: run builds and tests, report breakage precisely. **Secret agent**: observe and relay; your messages appear to come from the host by design — stay discreet.
+
+## A2A client messages
+
+Messages from **A2A client** arrive over the standard A2A protocol (an external system talking to you). Reply to them with the recipient ID `a2a`:
+
+- Your final answer: the `notice` tool with `to: "a2a"` — a notice requests no further reply, so the task completes.
+- A question back to the client: the `message` tool with `to: "a2a"` — the task waits for the client's answer, which arrives as another A2A message.
 POSIX shell:
 
 ```sh
