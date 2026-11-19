@@ -145,6 +145,11 @@ Each agent has a role set at launch or in Startup (default **Worker**):
 - **Secret agent** — observes the room and activity, and relays findings and situation summaries. Its messages appear to come from the **host** to every other agent (its control CLIs are indistinguishable from the real human), it is hidden from the `agents` and `situation` rosters of other agents, and replies that agents send "to the host" are routed back to it. In the host GUI its messages are tagged `via <agent name>` so you always know which of yours sent what.
 
 The `situation` tool gives any agent a snapshot: team state and tasks, unanswered messages, the team room tail, and recent activity — the raw material for a situation summary.
+## Memory & artifacts
+
+**Project memory** (`remember` / `memory` tools, Memory & artifacts page in the GUI): durable notes that outlive sessions. Every `remember` call is injected into the next session's instructions of every agent, and the host can add or forget notes from the GUI.
+
+**Artifact ledger** (`artifact` / `artifacts` tools): agents declare what they create — `file`, `dir`, `service`, or `port` — so nothing the team builds is anonymous. The host page lists every declaration with its author; **Remove declared files & directories** shows a preview of the exact deletion list, then deletes precisely that set on the owning devices (services and ports stay listed for manual stop). Deletion runs on the device where the artifact lives, paths are confined to the device workspace, and undeclared files are never touched.
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.

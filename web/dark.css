@@ -79,3 +79,6 @@
 [data-theme=dark] .pin-row .text-button{color:#9fb2d4}[data-theme=dark] .liveness.active{background:#17362c;color:#5db895}
 [data-theme=dark] .liveness.idle{background:#3a3120;color:#cfa95c}
 [data-theme=dark] .liveness.stalled{background:#43232a;color:#d98a95}[data-theme=dark] .secret-tag{background:#3a3120;color:#cfa95c}
+[data-theme=dark] .artifact-kind{background:#17362c;color:#5db895}
+[data-theme=dark] button.danger{background:#a64949}
+[data-theme=dark] button.danger:hover{background:#b55656}

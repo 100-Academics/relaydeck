@@ -2,8 +2,7 @@ import WebSocket from 'ws';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { realpath, mkdtemp, writeFile, rm, appendFile } from 'node:fs/promises';
-import { fork, execFile } from 'node:child_process';
+import { realpath, mkdtemp, writeFile, rm, appendFile, stat } from 'node:fs/promises';import { fork, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { insideRoot, syncRepository } from './sync.js';
 import { options, openBrowser, clientGuiUrl } from './runtime.js';
@@ -38,13 +37,11 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
   };
   const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
   const status = (agentId, state, error, exitCode, extra = {}) => send({ type: 'status', agentId, status: state, error, exitCode, ...extra });
-  async function launch({ agent, token: agentToken, pinned }) {
-    if (processes.has(agent.id)) return;
+  async function launch({ agent, token: agentToken, pinned, memory }) {    if (processes.has(agent.id)) return;
     let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const instructions = await agentInstructions(agent, pinned);
-      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
+      const instructions = await agentInstructions(agent, [...(pinned || []), ...(memory || [])]);      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
       const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
       await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
       const mailPath = path.join(sessionDirectory, 'MAIL.md');
@@ -102,6 +99,18 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
         } else if (msg.type === 'sync') {
           try { send({ type: 'result', requestId: msg.requestId, result: await syncRepository(root, msg.input) }); }
           catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
+        } else if (msg.type === 'remove-artifacts') {
+          try {
+            const removed = [], missing = [];
+            for (const item of msg.items || []) {
+              if (item.kind !== 'file' && item.kind !== 'dir') { missing.push(item.ref); continue; }
+              const resolved = await insideRoot(root, item.ref);
+              let present = true;
+              try { await stat(resolved); } catch { present = false; }
+              if (present) { await rm(resolved, { recursive: true }); removed.push(resolved); } else missing.push(item.ref);
+            }
+            send({ type: 'result', requestId: msg.requestId, result: { removed, missing } });
+          } catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
         }
       } catch (error) { log(`Runner: ${error.message}`); }
     });

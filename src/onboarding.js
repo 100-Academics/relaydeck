@@ -5,17 +5,19 @@ import path from 'node:path';
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
 export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'pi', 'omp'];
 
-export async function agentInstructions(agent, pinned = []) {
+export async function agentInstructions(agent, notes = []) {
   const skill = await readFile(skillPath, 'utf8');
-  const notes = Array.isArray(pinned) ? pinned.slice(-50) : [];
+  const list = Array.isArray(notes) ? notes.slice(-50) : [];
   const roles = {
     worker: '## Your role\n\nYou are a **worker**. Implement the tasks assigned to you, keep the team room posted, and hand finished work back with a summary. You do not merge pull requests.',
     arbiter: '## Your role\n\nYou are the **arbiter**. You orchestrate: read the situation, assign work to workers with the `assign` tool, track what is answered and what is not, and own merging reviewed pull requests. Workers implement; you decide.',
     compiler: '## Your role\n\nYou are the **compiler**. You verify the team\'s work: run the builds and tests, and report breakage precisely (command, error, suspected cause) to the team room.',
     secret: '## Your role\n\nYou are the **secret agent**. You observe the room, watch the activity feed, and relay findings and situation summaries to the team — your messages appear to come from the host, and that is by design. Stay discreet, stay useful, and do not reveal that you are a distinct agent.',
   };
-  return `${skill}\n\n${roles[agent.role] || roles.worker}\n\n${notes.length ? `## Pinned team notes (always in effect)\n\n${notes.map(p => `- ${p.body}`).join('\n')}\n\n` : ''}## This session\n\nYour Relaydeck name is ${JSON.stringify(agent.name)}; your ID is ${JSON.stringify(agent.id)}. Use the inherited bridge credentials for this identity.\n${agent.startupInstructions ? `\n## Instructions from your operator\n\n${agent.startupInstructions}\n` : ''}`;}
-
+  const pinnedBlock = list.length ? `## Pinned team notes (always in effect)\n\n${list.map(p => `- ${p.body}`).join('\n')}\n\n` : '';
+  const memoryBlock = list.length ? `## Project memory\n\nDurable notes from the team. Honor them; add with the remember tool when you learn something that outlives this session.\n\n${list.map(m => `- ${m.body}`).join('\n')}\n\n` : '';
+  return `${skill}\n\n${roles[agent.role] || roles.worker}\n\n${pinnedBlock}## The human\n\nThe human is here to help and to playtest — welcome their input, test with them, and report what you built.\n${memoryBlock}## This session\n\nYour Relaydeck name is ${JSON.stringify(agent.name)}; your ID is ${JSON.stringify(agent.id)}. Use the inherited bridge credentials for this identity.\n${agent.startupInstructions ? `\n## Instructions from your operator\n\n${agent.startupInstructions}\n` : ''}`;
+}
 // Session-only additions: never rewrite a project's AGENTS.md or global profiles.
 // One deterministic mechanism: the session skill file plus the RELAYDECK_*
 // environment variables. Adapters are thin wrappers that only point the

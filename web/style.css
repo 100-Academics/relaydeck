@@ -10,3 +10,14 @@
 @media(max-width:680px){.mobile-agent-switch{display:flex;align-items:center;gap:12px;margin:0 0 16px;color:#687e9c;font-size:11px}.mobile-agent-switch label{white-space:nowrap}.mobile-agent-switch select{font-size:11px;padding:9px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
 .pins-panel{padding:10px 16px 0;border-bottom:1px solid #edf0f5}.pins-list{display:grid;gap:8px;margin-bottom:8px}.pin-row{display:flex;align-items:flex-start;gap:9px;padding:9px 10px;border:1px solid #d7e0f2;border-radius:9px;background:var(--blue-soft)}.pin-row p{margin:0;font-size:12px;color:#3d5687}.pin-row small{color:#7d8fb0;font-size:10px}.pin-row .text-button{margin-left:auto;align-self:center}.pin-icon{color:var(--blue);display:inline-flex}.pin-icon svg{width:14px;height:14px}.pins-empty{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px;padding:2px 2px 8px}.pins-empty svg{width:14px;height:14px}.pin-form{display:flex;gap:7px}.pin-form input{flex:1;padding:8px 10px;font-size:12px}.pin-form .small-button{white-space:nowrap}.liveness{font-size:10px;font-weight:600;padding:3px 8px;border-radius:6px;margin-left:6px;white-space:nowrap}.liveness.active{color:#338674;background:#e7f3ee}.liveness.idle{color:#9d8140;background:#fff5de}.liveness.stalled{color:#a64949;background:#ffecec}.dot.stalled{background:#d7aa4f}.secret-tag{font-size:10px;color:#7a6a45;background:#f5efdd;padding:2px 6px;border-radius:5px;margin-left:6px}
+.memory-layout{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;align-items:start}
+.memory-row{padding:12px 0;border-bottom:1px solid rgba(120,140,170,.14)}
+.memory-row p{margin:0 0 6px;font-size:13px}
+.memory-meta{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.memory-form{margin-top:14px}
+.artifact-row{padding:10px 0;border-bottom:1px solid rgba(120,140,170,.14);font-size:12px}
+.artifact-row code{display:inline-block;margin:0 0 4px;padding:2px 6px;border-radius:4px;background:rgba(120,140,170,.12);font-size:11px}
+.artifact-kind{display:inline-block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:5px;background:rgba(59,130,116,.14);color:#338674;margin-right:6px}
+button.danger{width:auto;display:inline-flex;align-items:center;gap:7px;margin-top:14px;background:#a64949;color:#fff;border:none;padding:9px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer}
+button.danger:hover{background:#b55656}
+@media (max-width:980px){.memory-layout{grid-template-columns:1fr}}
