@@ -72,13 +72,10 @@ try {
   assert.ok((await page.locator('#agent-skill').textContent()).includes('group_notice'));
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Connect tools', exact: true }).click();
-  await page.getByLabel('Configuration format').selectOption('hermes');
-  const config = JSON.parse(await page.locator('#bridge-config').textContent());
-  assert.ok(config.mcp_servers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
-  await page.getByLabel('Configuration format').selectOption('antigravity');
-  const antigravityConfig = JSON.parse(await page.locator('#bridge-config').textContent());
-  assert.ok(antigravityConfig.mcpServers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
-  assert.ok((await page.locator('#bridge-location').textContent()).includes('.agents/mcp_config.json'));
+  const bridgeEnv = JSON.parse(await page.locator('#bridge-env').textContent());
+  assert.ok(bridgeEnv.RELAYDECK_AGENT_TOKEN);
+  assert.ok(bridgeEnv.RELAYDECK_SERVER_URL);
+  assert.ok((await page.locator('#bridge-env').textContent()).includes(host.address));
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Set task' }).click();
   await page.getByLabel('What is this agent working on?').fill('Validating the shared workspace and terminal connection');

@@ -15,8 +15,9 @@ During work, read `inbox` at turn boundaries and before finishing, and re-read t
 
 ## Tools
 
-Use the command-line bridge from your shell tool — it is the primary transport and works in every harness that can run a command. It is already authenticated for this agent. MCP is an optional convenience if your harness prefers it. Credentials are inherited from the process environment. Never print or copy the token.
+Use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
 
+The table shows example calls. IDs in angle brackets are placeholders, not real teammates or messages — look up real IDs with `agents` before sending.
 | Tool | Input example | Purpose |
 | --- | --- | --- |
 | `agents` | `{}` | Find teammate IDs and their current tasks |
@@ -32,11 +33,10 @@ Use the command-line bridge from your shell tool — it is the primary transport
 | `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
 | `question` | `{"to":"human","body":"Should we keep the legacy API?"}` | Ask a question that needs an answer; it stays "Needs answer" until they reply |
 | `pin` / `unpin` / `pins` | `{"body":"Never commit the .env key"}` | Pinned notes stay in every agent context; add, remove, or list them |
-| `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |
-| `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
+| `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply || `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
 | `situation` | `{}` | Situation summary: team state, unanswered messages, room tail, recent activity |
 
-The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
+The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`. Your own name and ID appear in the "This session" section of your session instructions — that identity is yours, and no example in this skill changes it.
 
 ## When the human is needed
 

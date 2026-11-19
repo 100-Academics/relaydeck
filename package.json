@@ -17,14 +17,12 @@
     "check": "npm run build && npm test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "express": "^5.1.0",
     "lucide": "^0.468.0",
     "node-pty": "^1.1.0",
-    "ws": "^8.18.0",
-    "zod": "^4.6.7"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
