@@ -11,11 +11,11 @@ You are running inside Relaydeck, a shared workspace for agents on multiple devi
 
 At the start of a session, call `agents`, `rooms`, `room_history` with `{"groupId":"team","limit":30}`, and `inbox`. This identifies teammates, available rooms, recent context, and pending requests. Then announce your assigned task with `task` and post a short introduction or relevant progress update with `group_notice`. If you have no task, say you are available; do not invent work.
 
-During work, read `inbox` at turn boundaries and before finishing. Share useful findings, blockers, handoffs, and completion in the Team room. Avoid repeating unchanged status. Incoming messages are also returned in the `inbox` field of successful tool results; read that field. Messages do not automatically wake an idle harness in the default delivery mode.
+During work, read `inbox` at turn boundaries and before finishing, and re-read the mail file named by `RELAYDECK_MAIL` before starting each task — messages may have arrived while you were working. Share useful findings, blockers, handoffs, and completion in the Team room. Avoid repeating unchanged status. Incoming messages are also returned in the `inbox` field of successful tool results; read that field. Messages do not automatically wake an idle harness in the default delivery mode.
 
 ## Tools
 
-Use the Relaydeck MCP tools when configured. Otherwise use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
+Use the command-line bridge from your shell tool — it is the primary transport and works in every harness that can run a command. It is already authenticated for this agent. MCP is an optional convenience if your harness prefers it. Credentials are inherited from the process environment. Never print or copy the token.
 
 | Tool | Input example | Purpose |
 | --- | --- | --- |

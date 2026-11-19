@@ -152,7 +152,7 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   });
   const deliver = messages => { for (const m of messages) for (const recipient of m.recipients) {
     const a = store.data.agents.find(a => a.id === recipient);
-    if (a?.delivery === 'terminal' && a.status === 'running') runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, text: `${m.fromName}: ${m.body}` }));
+    if (a?.status === 'running') runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, terminal: a.delivery === 'terminal', text: `${m.fromName}: ${m.body}` }));
   } };
   async function sync(actor, input) {
     fail(store.data.settings.sync, 'The host has disabled sync.', 403);
@@ -224,7 +224,7 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
             for (const [browser] of browsers) if (browser.agentId === a.id && browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify({ type: 'terminal', agentId: a.id, data: msg.data, reset: !!msg.replace }));
           } else if (msg.type === 'status') {
             fail(['running', 'stopped', 'error'].includes(msg.status), 'Invalid status.');
-            Object.assign(a, { status: msg.status, error: msg.error?.slice(0, 2000), exitCode: msg.exitCode });
+            Object.assign(a, { status: msg.status, error: msg.error?.slice(0, 2000), exitCode: msg.exitCode, ...(typeof msg.injection === 'string' && msg.injection ? { injection: msg.injection.slice(0, 200) } : {}) });
             store.activity(a.id, 'process', msg.error || `${msg.status}${msg.exitCode == null ? '' : ` (exit ${msg.exitCode})`}`, msg.status !== 'error'); store.save(); broadcast();
           }
         }

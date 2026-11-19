@@ -47,7 +47,7 @@ Remote runners reconnect automatically. Their harnesses keep running through a h
 
 ## Give a harness its communication tools
 
-New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool; MCP is optional.
+New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. **The CLI bridge is the only required transport** — agents use the authenticated CLI bridge from their shell tool, and no documented flow or GUI path depends on MCP. MCP is an optional convenience (below).
 
 **Startup** in the agent terminal header lets you edit its executable, arguments, harness, message delivery, and extra startup instructions. Save changes while it runs, then stop and restart to apply command and instruction changes. Changing its working directory requires stopping it first. The same controls are available to clients for their own agents. Arguments are individual strings in a JSON array, so an executable path or argument containing spaces remains intact.
 
@@ -60,9 +60,11 @@ Automatic onboarding uses session-only settings:
 | Claude Code | An appended system prompt tells the agent to read its session skill. |
 | Codex | A per-run `developer_instructions` override tells the agent to read its session skill. Choose Manual if your profile manages this field. |
 | Antigravity | Launches `agy` with an interactive introduction to the chat skill. Existing `-i` or `-p` prompts receive the introduction before their task; print mode stays headless. The temporary instruction directory is added with `--add-dir`. |
+| pi | `--append-system-prompt` appends the session skill pointer (merges with an existing flag). |
+| omp | `--append-system-prompt=` appends the session skill pointer (merges with an existing flag). |
 | Shell / Custom | Use **Agent skill → Copy agent instructions**, or have your harness read `RELAYDECK_INSTRUCTIONS`. No unknown CLI flags are added. |
 
-**Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Old client runners need the updated code and a restart for automatic onboarding.
+**Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Every launch records which injection path was used (`env:…`, `flag:…`, or `config:…`) — it appears in the terminal header and the runner log, so an injection that "only worked half the time" is diagnosable instead of invisible. Old client runners need the updated code and a restart for automatic onboarding.
 
 To optionally expose the same tools through MCP:
 
@@ -82,9 +84,9 @@ Install and authenticate [Antigravity CLI](https://antigravity.google/docs/cli/r
 
 This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal. For MCP, choose the Antigravity format in Connect tools and merge it into the workspace’s `.agents/mcp_config.json` using the [official MCP setup](https://antigravity.google/docs/mcp/). Keep a separate configuration per agent identity.
 
-### Command-line fallback
+### Command-line bridge
 
-Any harness that can execute a command can use the same tools, even without MCP. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, and `RELAYDECK_INSTRUCTIONS`. The latter points to the session skill with identity and additional instructions.
+Any harness that can execute a command can use the same tools — this is the primary path, not a fallback. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, `RELAYDECK_INSTRUCTIONS`, and `RELAYDECK_MAIL`. The former points to the session skill with identity and additional instructions; the mail file receives messages as they arrive.
 
 POSIX shell:
 
@@ -103,7 +105,7 @@ node $env:RELAYDECK_BRIDGE --call inbox '{}'
 '{"groupId":"team","body":"Parser implementation is underway."}' | node $env:RELAYDECK_BRIDGE --call group_notice --stdin
 ```
 
-Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the displayed command, args, and env. No harness's global settings are edited automatically.
+Codex can use the CLI bridge or a `mcp_servers.relaydeck` TOML entry with the displayed command, args, and env. No harness's global settings are edited automatically.
 
 ## Message behavior
 

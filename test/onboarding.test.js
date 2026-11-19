@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createHost } from '../src/server.js';
@@ -27,10 +28,39 @@ test('onboarding adapters preserve arguments and settings; manual mode leaves la
   assert.ok(claude.args[1].startsWith('Existing rules\n\n')); assert.ok(claude.args[1].includes(file));
   const codex = onboardingLaunch({ ...agent, harness: 'Codex' }, instructions, {}, file);
   assert.equal(codex.args[0], '-c'); assert.ok(codex.args[1].startsWith('developer_instructions=')); assert.deepEqual(codex.args.slice(2), agent.args);
-  for (const harness of ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'Custom', 'Shell']) {
+  assert.equal(hermes.injection, 'env:HERMES_ENVIRONMENT_HINT');
+  assert.equal(open.injection, 'env:OPENCODE_CONFIG_CONTENT');
+  assert.equal(claude.injection, 'flag:--append-system-prompt');
+  assert.equal(codex.injection, 'config:developer_instructions');
+  for (const harness of ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'pi', 'omp', 'Custom', 'Shell']) {
     const manual = onboardingLaunch({ ...agent, harness, onboarding: 'manual' }, instructions, {}, file);
     assert.deepEqual(manual.args, agent.args); assert.equal(manual.automatic, false); assert.equal(manual.env.RELAYDECK_INSTRUCTIONS, file);
+    assert.equal(manual.injection, 'env:RELAYDECK_INSTRUCTIONS');
   }
+});
+
+test('pi and omp receive the session skill via --append-system-prompt with recorded injection paths', async () => {
+  const agent = { id: 'p', name: 'Pilot', args: ['--model', 'chosen-model'] };
+  const instructions = await agentInstructions(agent);
+  const file = 'C:/session with spaces/SKILL.md';
+  const mail = 'C:/session with spaces/MAIL.md';
+  const pi = onboardingLaunch({ ...agent, harness: 'pi' }, instructions, {}, file, mail);
+  assert.equal(pi.automatic, true);
+  assert.equal(pi.args[0], '--append-system-prompt');
+  assert.ok(pi.args[1].includes(JSON.stringify(file)));
+  assert.ok(pi.args[1].includes(JSON.stringify(mail)));
+  assert.deepEqual(pi.args.slice(2), agent.args);
+  assert.equal(pi.injection, 'flag:--append-system-prompt');
+  assert.equal(pi.env.RELAYDECK_MAIL, mail);
+  const omp = onboardingLaunch({ ...agent, harness: 'omp', args: ['--append-system-prompt=Existing rules'] }, instructions, {}, file, mail);
+  assert.equal(omp.args.filter(a => a.startsWith('--append-system-prompt=')).length, 1);
+  assert.ok(omp.args[0].startsWith('--append-system-prompt=Existing rules\n\n'));
+  assert.ok(omp.args[0].includes(JSON.stringify(mail)));
+  assert.equal(omp.injection, 'flag:--append-system-prompt=');
+  const piEquals = onboardingLaunch({ ...agent, harness: 'pi', args: ['--append-system-prompt=Rules'] }, instructions, {}, file, mail);
+  assert.equal(piEquals.args.filter(a => a.startsWith('--append-system-prompt=')).length, 1);
+  assert.ok(piEquals.args[0].includes(JSON.stringify(file)));
+  assert.throws(() => onboardingLaunch({ ...agent, harness: 'pi', args: ['--append-system-prompt'] }, instructions, {}, file, mail), /needs a value/);
 });
 
 test('Antigravity introduces the room skill while preserving interactive and headless startup tasks', async () => {
@@ -83,6 +113,7 @@ test('a real hosted process receives its skill, posts to the room, and uses edit
     assert.ok(process.env.HERMES_ENVIRONMENT_HINT.includes(instructions));
     assert.ok(instructions.includes(process.env.RELAYDECK_AGENT_ID));
     assert.ok(instructions.includes('room_history'));
+    assert.ok(process.env.RELAYDECK_MAIL && process.env.RELAYDECK_MAIL.endsWith('MAIL.md'));
     const result = spawnSync(process.execPath, [process.env.RELAYDECK_BRIDGE, '--call', 'group_notice', '--stdin'], { input: JSON.stringify({ groupId: 'team', body: process.argv[2] }), encoding: 'utf8', windowsHide: true });
     assert.equal(result.status, 0, result.stderr);
     process.stdin.resume();
@@ -91,6 +122,11 @@ test('a real hosted process receives its skill, posts to the room, and uses edit
   assert.equal(created.status, 200);
   const a = created.data;
   await wait(() => host.store.data.messages.some(m => m.from === a.id && m.body === 'first launch'));
+  const mailMarker = `mail-check-${Date.now()}`;
+  await request('/tools/message', { body: { to: a.id, body: mailMarker } });
+  await wait(() => readdirSync(os.tmpdir()).filter(d => d.startsWith('relaydeck-agent-')).some(d => {
+    try { return readFileSync(path.join(os.tmpdir(), d, 'MAIL.md'), 'utf8').includes(mailMarker); } catch { return false; }
+  }), 'mail file should receive the delivered message');
   const preview = await request(`/agents/${a.id}/instructions`, { token: d.token });
   assert.equal(preview.status, 200); assert.ok(preview.data.instructions.includes(a.id));
   assert.ok(!preview.data.instructions.includes(host.store.agentToken(a.id)));

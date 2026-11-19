@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 export const skillPath = fileURLToPath(new URL('../skills/relaydeck-chat/SKILL.md', import.meta.url));
-export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity'];
+export const automaticHarnesses = ['Hermes', 'OpenCode', 'Claude Code', 'Codex', 'Antigravity', 'pi', 'omp'];
 
 export async function agentInstructions(agent) {
   const skill = await readFile(skillPath, 'utf8');
@@ -11,28 +11,35 @@ export async function agentInstructions(agent) {
 }
 
 // Session-only additions: never rewrite a project's AGENTS.md or global profiles.
-export function onboardingLaunch(agent, instructions, env, instructionsPath) {
+// One deterministic mechanism: the session skill file plus the RELAYDECK_*
+// environment variables. Adapters are thin wrappers that only point the
+// harness at those files; every launch records the injection path used.
+export function onboardingLaunch(agent, instructions, env, instructionsPath, mailPath) {
   let args = [...agent.args];
-  const prompt = `You are running in Relaydeck and can use its shared chat room. Before working, read the session instructions at ${JSON.stringify(instructionsPath)} and use the Relaydeck chat skill there to discover teammates, read the room, and coordinate your assigned task. The CLI bridge is already authenticated through inherited environment variables.`;
-  env = { ...env, RELAYDECK_SKILL: skillPath, RELAYDECK_INSTRUCTIONS: instructionsPath };
-  if (agent.onboarding === 'manual' || !automaticHarnesses.includes(agent.harness)) return { args, env, automatic: false };
+  const prompt = `You are running in Relaydeck and can use its shared chat room. Before working, read the session instructions at ${JSON.stringify(instructionsPath)} and use the Relaydeck chat skill there to discover teammates, read the room, and coordinate your assigned task.${mailPath ? ` New mail is appended to ${JSON.stringify(mailPath)} — re-read it before starting each task.` : ''} The CLI bridge is already authenticated through inherited environment variables.`;
+  env = { ...env, RELAYDECK_SKILL: skillPath, RELAYDECK_INSTRUCTIONS: instructionsPath, ...(mailPath ? { RELAYDECK_MAIL: mailPath } : {}) };
+  if (agent.onboarding === 'manual' || !automaticHarnesses.includes(agent.harness)) return { args, env, automatic: false, injection: 'env:RELAYDECK_INSTRUCTIONS' };
   if (agent.harness === 'Hermes') {
     env.HERMES_ENVIRONMENT_HINT = [env.HERMES_ENVIRONMENT_HINT, instructions].filter(Boolean).join('\n\n');
-  } else if (agent.harness === 'OpenCode') {
+    return { args, env, automatic: true, injection: 'env:HERMES_ENVIRONMENT_HINT' };
+  }
+  if (agent.harness === 'OpenCode') {
     const config = JSON.parse(env.OPENCODE_CONFIG_CONTENT || '{}');
     if (!config || typeof config !== 'object' || Array.isArray(config) || (config.instructions !== undefined && !Array.isArray(config.instructions))) throw new Error('OPENCODE_CONFIG_CONTENT must be an object with an instructions array.');
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ ...config, instructions: [...(config.instructions || []), instructionsPath] });
-  } else if (agent.harness === 'Claude Code') {
-    // Merge an existing append prompt instead of supplying the same flag twice.
-    const index = args.findIndex(a => a === '--append-system-prompt' || a.startsWith('--append-system-prompt='));
-    if (index < 0) args.unshift('--append-system-prompt', prompt);
-    else if (args[index].includes('=')) args[index] += `\n\n${prompt}`;
-    else { if (typeof args[index + 1] !== 'string') throw new Error('--append-system-prompt needs a value.'); args[index + 1] += `\n\n${prompt}`; }
-  } else if (agent.harness === 'Codex') {
+    return { args, env, automatic: true, injection: 'env:OPENCODE_CONFIG_CONTENT' };
+  }
+  if (agent.harness === 'Claude Code' || agent.harness === 'pi' || agent.harness === 'omp') {
+    appendPromptFlag(args, '--append-system-prompt', prompt);
+    return { args, env, automatic: true, injection: agent.harness === 'omp' ? 'flag:--append-system-prompt=' : 'flag:--append-system-prompt' };
+  }
+  if (agent.harness === 'Codex') {
     // Developer instructions are a per-run override. Manual mode is available
     // for profiles that manage this field themselves.
     args.unshift('-c', `developer_instructions=${JSON.stringify(prompt)}`);
-  } else if (agent.harness === 'Antigravity') {
+    return { args, env, automatic: true, injection: 'config:developer_instructions' };
+  }
+  if (agent.harness === 'Antigravity') {
     // agy supports an interactive initial prompt and explicit workspace folders.
     // Keep the instruction file accessible without changing project rules.
     const flags = ['-i', '--prompt-interactive', '-p', '--print', '--prompt'];
@@ -46,6 +53,18 @@ export function onboardingLaunch(agent, instructions, env, instructionsPath) {
       args[index + 1] = `${prompt}\n\nStartup task:\n${args[index + 1]}`;
     }
     args.unshift('--add-dir', path.dirname(instructionsPath));
+    return { args, env, automatic: true, injection: 'flag:--prompt-interactive' };
   }
-  return { args, env, automatic: true };
+}
+
+// Merge into an existing flag instead of supplying the same flag twice;
+// handles both `flag value` and `flag=value` forms.
+function appendPromptFlag(args, flag, prompt) {
+  const index = args.findIndex(a => a === flag || a.startsWith(`${flag}=`));
+  if (index < 0) { args.unshift(flag, prompt); return; }
+  if (args[index].includes('=')) args[index] += `\n\n${prompt}`;
+  else {
+    if (typeof args[index + 1] !== 'string') throw new Error(`${flag} needs a value.`);
+    args[index + 1] += `\n\n${prompt}`;
+  }
 }
