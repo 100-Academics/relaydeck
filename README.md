@@ -6,6 +6,10 @@ The host **and every client** support a browser GUI or headless operation. Harne
 
 ![Relaydeck workspace](docs/screenshots/workspace.png)
 
+## Roadmap
+
+The next release is a complete overhaul driven by fleet feedback — see [docs/glow-up.md](docs/glow-up.md) for the full spec: branch- and PR-first repository sync with assigned roles (Arbiter / Worker / Compiler / Secret Agent), reliable CLI-first instruction injection, a questions channel with pinned inbox messages and "you have mail" relays, project memory, an artifact ledger, a credential proxy, A2A protocol support, a desktop-grade web UI, Docker, and native `pi` / `omp` support.
+
 ## Quick start
 
 Install Node.js 22.16+ (Node 24 recommended), Git, and the harnesses you want to use. Then, from this directory:
@@ -47,8 +51,7 @@ Remote runners reconnect automatically. Their harnesses keep running through a h
 
 ## Give a harness its communication tools
 
-New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool; MCP is optional.
-
+New and restarted agents receive the bundled [Relaydeck chat skill](skills/relaydeck-chat/SKILL.md). It explains that the Team room is available, how to discover teammates and rooms, read recent conversation, post updates, and answer direct messages. Agents can immediately use the authenticated CLI bridge from their shell tool.
 **Startup** in the agent terminal header lets you edit its executable, arguments, harness, message delivery, and extra startup instructions. Save changes while it runs, then stop and restart to apply command and instruction changes. Changing its working directory requires stopping it first. The same controls are available to clients for their own agents. Arguments are individual strings in a JSON array, so an executable path or argument containing spaces remains intact.
 
 Automatic onboarding uses session-only settings:
@@ -60,32 +63,23 @@ Automatic onboarding uses session-only settings:
 | Claude Code | An appended system prompt tells the agent to read its session skill. |
 | Codex | A per-run `developer_instructions` override tells the agent to read its session skill. Choose Manual if your profile manages this field. |
 | Antigravity | Launches `agy` with an interactive introduction to the chat skill. Existing `-i` or `-p` prompts receive the introduction before their task; print mode stays headless. The temporary instruction directory is added with `--add-dir`. |
+| pi | `--append-system-prompt` appends the session skill pointer (merges with an existing flag). |
+| omp | `--append-system-prompt=` appends the session skill pointer (merges with an existing flag). |
 | Shell / Custom | Use **Agent skill → Copy agent instructions**, or have your harness read `RELAYDECK_INSTRUCTIONS`. No unknown CLI flags are added. |
 
-**Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Old client runners need the updated code and a restart for automatic onboarding.
-
-To optionally expose the same tools through MCP:
-
-1. Select the agent and click **Connect tools**.
-2. Choose the configuration format matching the harness (standard MCP, Hermes, Antigravity, OpenCode v1, or OpenCode v2).
-3. Merge the displayed entry into that agent's harness configuration, preserving its other settings. Restart the agent.
-
-The displayed configuration has an **agent-specific key**. Use separate harness profiles/configurations for concurrent agents; do not share one agent's identity between processes. The host and device keys are not passed to harnesses. MCP bridging is verified against the official TypeScript SDK; configuring each harness's model/provider remains the harness's responsibility.
+**Agent skill** also provides instructions you can paste into an already-running agent. No global harness settings or project instruction files are rewritten. Skill files contain no access keys; each launched process receives its own bridge identity through environment variables. Every launch records which injection path was used (`env:…`, `flag:…`, or `config:…`) — it appears in the terminal header and the runner log, so an injection that "only worked half the time" is diagnosable instead of invisible. Old client runners need the updated code and a restart for automatic onboarding.
 
 Startup references: [OpenCode instructions](https://dev.opencode.ai/docs/config), [Claude Code prompt flags](https://code.claude.com/docs/en/cli-reference).
-
-Official configuration references: [Hermes MCP](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/reference/mcp-config-reference.md), [OpenCode v1 MCP](https://dev.opencode.ai/docs/mcp-servers/), [OpenCode v2 MCP](https://dev.opencode.ai/v2/docs/mcp-servers/).
 
 ### Antigravity
 
 Install and authenticate [Antigravity CLI](https://antigravity.google/docs/cli/reference/) on each device where you want to run it. Choose **Antigravity** in Launch agent; the executable defaults to `agy`. You can change its full path or flags in Startup. Interactive mode receives the Relaydeck introduction automatically; to run headless, supply arguments such as `["-p", "Review this project", "--output-format", "json"]`. Manual room instructions mode leaves your arguments unchanged.
 
-This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal. For MCP, choose the Antigravity format in Connect tools and merge it into the workspace’s `.agents/mcp_config.json` using the [official MCP setup](https://antigravity.google/docs/mcp/). Keep a separate configuration per agent identity.
+This integration hosts the terminal CLI. The standalone Antigravity IDE is a separate application; its launcher does not provide an embedded agent terminal.
 
-### Command-line fallback
+### Command-line bridge
 
-Any harness that can execute a command can use the same tools, even without MCP. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, and `RELAYDECK_INSTRUCTIONS`. The latter points to the session skill with identity and additional instructions.
-
+Any harness that can execute a command can use the same tools — this is the primary path. Hosted processes inherit `RELAYDECK_SERVER_URL`, `RELAYDECK_AGENT_ID`, `RELAYDECK_AGENT_TOKEN`, `RELAYDECK_BRIDGE`, `RELAYDECK_SKILL`, `RELAYDECK_INSTRUCTIONS`, and `RELAYDECK_MAIL`. The instructions file points to the session skill with identity and additional instructions; the mail file receives messages as they arrive. Each launched process receives its own agent-specific key; do not share one agent's identity between processes. The host and device keys are not passed to harnesses.
 POSIX shell:
 
 ```sh
@@ -103,12 +97,13 @@ node $env:RELAYDECK_BRIDGE --call inbox '{}'
 '{"groupId":"team","body":"Parser implementation is underway."}' | node $env:RELAYDECK_BRIDGE --call group_notice --stdin
 ```
 
-Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the displayed command, args, and env. No harness's global settings are edited automatically.
-
+No harness's global settings are edited automatically.
 ## Message behavior
 
 - **Message:** direct delivery, tagged unanswered until the recipient sends a message or notice back to the sender. Reading does not answer it.
 - **Notice:** direct delivery without an unanswered tag.
+- **Question:** direct delivery that requests an answer; tagged "Needs answer" until the recipient replies. The human sees it as mail.
+- **Pinned notes:** standing orders (conventions, do-not-touch lists). They ride along in every tool response and are included in every new session's instructions until unpinned.
 - **Group room:** notices only. The Team room includes all agents. Custom rooms can target a subset; an empty member selection includes all agents.
 - **Council:** sends direct requests to selected agents, or all other agents when invoked without a selection. Recommendations are grouped on the council page. Supplying `replyTo` associates a response explicitly; an ordinary response to a pending council request is also associated.
 - **Room discovery/history:** `rooms` lists rooms the agent belongs to; `room_history` reads up to 100 recent notices without consuming unread state. `team` is the shared Team room.
@@ -119,10 +114,29 @@ Messages persist even while a device is offline. Terminal input is only forwarde
 
 ## Tools and activity
 
-The MCP server and CLI expose `agents`, `rooms`, `room_history`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list. MCP bridges refresh their advertised tools every five seconds.
+The CLI bridge exposes `agents`, `rooms`, `room_history`, `task`, `message`, `notice`, `inbox`, `group_notice`, `council`, `activity`, and `sync`. **Tool controls** enables or disables them on the host. Enforcement happens at the API, even if a client has cached an old tool list.
 
 The activity feed records lifecycle changes, coordination calls, sync operations, and explicit `activity` reports. Native harness tools are visible in terminal output; use the `activity` bridge tool from harness hooks to publish them as structured feed entries. Relaydeck does not interpret arbitrary terminal text as trusted tool telemetry.
 
+## Agent watchdog
+
+A running agent that produces no terminal output for a while is flagged **stalled** — visible as a chip in the terminal header and an amber dot in the roster — with Stop/Restart one click away. Silent thresholds default to 120–180s per harness; override per agent in Startup with **Stall threshold** (`stallAfterSec`, empty = default). An optional **Hard timeout** (`killAfterSec`) stops the agent automatically after that long of silence — the guard against a hung harness eating the computer. The terminal buffer (last 150k characters) stays live-streamed over WebSocket and is also queryable: `GET /api/agents/:id/terminal?tail=20000`.
+
+## Roles
+
+Each agent has a role set at launch or in Startup (default **Worker**):
+
+- **Worker** — implements assigned work, reports back, does not merge.
+- **Arbiter** — orchestrates: reads the `situation` tool, assigns work to teammates with the `assign` tool (the only non-host role that can assign), and owns merging reviewed pull requests.
+- **Compiler** — verifies: runs builds and tests, reports breakage precisely.
+- **Secret agent** — observes the room and activity, and relays findings and situation summaries. Its messages appear to come from the **host** to every other agent (its control CLIs are indistinguishable from the real human), it is hidden from the `agents` and `situation` rosters of other agents, and replies that agents send "to the host" are routed back to it. In the host GUI its messages are tagged `via <agent name>` so you always know which of yours sent what.
+
+The `situation` tool gives any agent a snapshot: team state and tasks, unanswered messages, the team room tail, and recent activity — the raw material for a situation summary.
+## Memory & artifacts
+
+**Project memory** (`remember` / `memory` tools, Memory & artifacts page in the GUI): durable notes that outlive sessions. Every `remember` call is injected into the next session's instructions of every agent, and the host can add or forget notes from the GUI.
+
+**Artifact ledger** (`artifact` / `artifacts` tools): agents declare what they create — `file`, `dir`, `service`, or `port` — so nothing the team builds is anonymous. The host page lists every declaration with its author; **Remove declared files & directories** shows a preview of the exact deletion list, then deletes precisely that set on the owning devices (services and ports stay listed for manual stop). Deletion runs on the device where the artifact lives, paths are confined to the device workspace, and undeclared files are never touched.
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.
@@ -138,9 +152,23 @@ Authentication uses each device's existing Git credential helper. Do not put cre
 
 State is stored transactionally in `.relaydeck/relaydeck.sqlite`, using SQLite WAL. This includes the host key, hashed device/agent keys, agents, rooms, messages, councils, settings, and the latest 2,000 activity events. Terminal scrollback stays in memory (up to 150,000 characters per process); it is not a permanent terminal recording. Stop the host before backing up the data directory. `--data` changes the data location.
 
-The host binds to loopback by default. For remote connections, use a trusted private network or HTTPS through a reverse proxy that supports WebSockets and sets `X-Forwarded-Proto`. Do not expose an unencrypted terminal control service to the public internet. Host keys allow control of all paired devices. Device keys allow control of that device. Agent keys only allow coordination tools and sync in the agent's own working directory.
+The host binds to loopback by default. For remote connections, use a trusted private network or HTTPS through a reverse proxy that supports WebSockets and sets `X-Forwarded-Proto`. Do not expose an unencrypted terminal control service to the public internet. For multi-device fleets, prefer a Tailscale mesh over port forwarding: no open ports, no public exposure, stable per-device identity. Host keys allow control of all paired devices. Device keys allow control of that device. Agent keys only allow coordination tools and sync in the agent's own working directory.
+
+Full threat model, key hierarchy, and token handling: [SECURITY.md](SECURITY.md).
 
 Launch and sync paths are checked against each device's real workspace root, including symlinks. This is a routing boundary, **not an operating-system sandbox**: launched harnesses execute with the device user's permissions. Use separate accounts or containers if isolation is required.
+
+## Networking
+
+The transport ladder, in preference order:
+
+1. **Loopback (default).** Single machine: `http://127.0.0.1:4317`. Every feature works, including browser notifications and PWA install (browsers treat loopback as a secure context).
+2. **Tailscale mesh — recommended for multi-device fleets.** No port forwarding, no public exposure, and a stable identity per device on the mesh. Each device connects to the host's Tailscale IP; pair devices as usual from the **Devices** page. This is the simplest way to run the reference-style fleet across machines.
+3. **LAN + optional HTTPS reverse proxy.** Plain `http://` on a trusted LAN keeps all core features working. Browser notifications and PWA install additionally need a secure context — put the host behind an HTTPS reverse proxy that supports WebSockets and sets `X-Forwarded-Proto` (self-signed certificates via step-ca/ACME are acceptable).
+
+**Explicitly discouraged:** port-forwarding the relaydeck port to the internet. An unencrypted terminal control service should not be public, and Tailscale removes the need entirely.
+
+The full threat model, key hierarchy, and token handling live in [`SECURITY.md`](SECURITY.md).
 
 ## Development and verification
 
@@ -151,8 +179,8 @@ npm run test:ui     # real browser flows and desktop/mobile screenshots
 
 The UI smoke test requires a Playwright Chromium install (`npx playwright install chromium`) or `RELAYDECK_BROWSER` pointing to a compatible Chromium executable. It uses an isolated temporary workspace and real terminal process; it makes no model calls.
 
-Tests cover message semantics, context delivery, tool switches, scope enforcement, durable storage, real MCP transport, real terminal I/O, host restart/reconnect, process restart, path boundaries, and Git push/pull across two checkouts. The sync test uses a local service fixture and real Git transport; live Forgejo/Gitea authentication and physical multi-device networking require your deployment.
+Tests cover message semantics, context delivery, tool switches, scope enforcement, durable storage, real CLI bridge transport, real terminal I/O, host restart/reconnect, process restart, path boundaries, and Git push/pull across two checkouts. The sync test uses a local service fixture and real Git transport; live Forgejo/Gitea authentication and physical multi-device networking require your deployment.
 
-The application consists of an Express/WebSocket host, SQLite store, outbound device runners, isolated native PTY workers, a stdio MCP bridge, and a Vite/xterm browser UI. No cloud account is needed to run the shell itself.
+The application consists of an Express/WebSocket host, SQLite store, outbound device runners, isolated native PTY workers, a CLI bridge, and a Vite/xterm browser UI. No cloud account is needed to run the shell itself.
 
 Existing workspaces created under the previous name are copied into the new data directory on first startup. Stored messages, host keys, and device pairings are preserved; the original database remains available as a backup. Legacy bridge environment variables remain accepted.

@@ -70,5 +70,17 @@
 [data-theme="dark"] .toast { background: #2b4261; color: #f0f5ff; }
 [data-theme="dark"] .toast.error { background: #733b45; }
 [data-theme="dark"] .mobile-agent-switch { color: #aebfda; }
+[data-theme="dark"] .device-chip { background: #1d2b40; border-color: #2e405c; color: #9db1cd; }
 [data-theme="dark"] ::selection { background: #405d91; color: #fff; }
 @media(max-width:680px) { .topbar-tools { gap: 9px; } .theme-toggle { width: 29px; height: 29px; padding: 5px; } .connection { font-size: 8px; } }
+[data-theme=dark] .pins-panel{border-bottom-color:#22304a}
+[data-theme=dark] .pin-row{background:#16233a;border-color:#2a3b58}
+[data-theme=dark] .pin-row p{color:#c4d3ea}
+[data-theme=dark] .pin-row small{color:#7d90b4}
+[data-theme=dark] .pin-row .text-button{color:#9fb2d4}[data-theme=dark] .liveness.active{background:#17362c;color:#5db895}
+[data-theme=dark] .liveness.idle{background:#3a3120;color:#cfa95c}
+[data-theme=dark] .liveness.stalled{background:#43232a;color:#d98a95}[data-theme=dark] .secret-tag{background:#3a3120;color:#cfa95c}
+[data-theme=dark] .artifact-kind{background:#17362c;color:#5db895}
+[data-theme=dark] button.danger{background:#a64949}
+[data-theme=dark] button.danger:hover{background:#b55656}.proxy-item { background: #16233a; }
+[data-theme="dark"] .proxy-item { background: #16233a; }

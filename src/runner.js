@@ -2,12 +2,11 @@ import WebSocket from 'ws';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { realpath, mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { fork, execFile } from 'node:child_process';
+import { realpath, mkdtemp, writeFile, rm, appendFile, stat } from 'node:fs/promises';import { fork, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { insideRoot, syncRepository } from './sync.js';
 import { options, openBrowser, clientGuiUrl } from './runtime.js';
-import { agentInstructions, onboardingLaunch } from './onboarding.js';
+import { agentInstructions, onboardingLaunch, proxyInstructions } from './onboarding.js';
 
 const bridgePath = fileURLToPath(new URL('./bridge.js', import.meta.url));
 const workerPath = fileURLToPath(new URL('./pty-worker.js', import.meta.url));
@@ -37,30 +36,35 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
     if (entry.worker.connected) entry.worker.send({ type: 'stop' });
   };
   const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
-  const status = (agentId, state, error, exitCode) => send({ type: 'status', agentId, status: state, error, exitCode });
-  async function launch({ agent, token: agentToken }) {
+  const status = (agentId, state, error, exitCode, extra = {}) => send({ type: 'status', agentId, status: state, error, exitCode, ...extra });
+  async function launch({ agent, token: agentToken, pinned, memory, proxy: proxyInfo }) {
     if (processes.has(agent.id)) return;
     let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const instructions = await agentInstructions(agent);
-      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
-      const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
+      const baseInstructions = await agentInstructions(agent, [...(pinned || []), ...(memory || [])]);
+      const proxyEnabled = !!(agent.proxy && proxyInfo?.address);
+      const instructions = proxyEnabled ? baseInstructions + proxyInstructions(proxyInfo) : baseInstructions;
+      sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));      const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
       await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
-      const onboarding = onboardingLaunch(agent, instructions, process.env, instructionsPath);
+      const mailPath = path.join(sessionDirectory, 'MAIL.md');
+      await writeFile(mailPath, '# Relaydeck mail\n\nMessages are appended here as they arrive. Re-read this file before starting each task.\n', { encoding: 'utf8', mode: 0o600 });
+      const onboarding = onboardingLaunch(agent, instructions, process.env, instructionsPath, mailPath);
+      log(`${agent.name || agent.id}: instruction injection via ${onboarding.injection}`);
       const launchCommand = await executable(agent.command, onboarding.args);
-      const env = { ...onboarding.env, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
+      const proxyEnv = proxyEnabled ? { http_proxy: proxyInfo.address, https_proxy: proxyInfo.address, HTTP_PROXY: proxyInfo.address, HTTPS_PROXY: proxyInfo.address } : {};
+      const env = { ...onboarding.env, ...(agent.env || {}), ...proxyEnv, TERM: 'xterm-256color', RELAYDECK_SERVER_URL: server, RELAYDECK_AGENT_ID: agent.id, RELAYDECK_AGENT_TOKEN: agentToken, RELAYDECK_BRIDGE: bridgePath };
       // Do not let child harnesses inherit host or runner credentials.
       delete env.RELAYDECK_TOKEN; delete env.RELAYDECK_DEVICE_TOKEN; delete env.RELAYDECK_ADMIN_TOKEN;
       delete env.AMOEBA_TOKEN; delete env.AMOEBA_DEVICE_TOKEN; delete env.AMOEBA_ADMIN_TOKEN;
       const worker = fork(workerPath, [], { env, stdio: ['ignore', 'ignore', 'pipe', 'ipc'], windowsHide: true });
-      const entry = { worker, output: '', cwd, ended: false }; processes.set(agent.id, entry);
+      const entry = { worker, output: '', cwd, ended: false, mailPath, injection: onboarding.injection }; processes.set(agent.id, entry);
       const forget = () => { if (processes.get(agent.id) === entry) processes.delete(agent.id); void rm(sessionDirectory, { recursive: true, force: true }).catch(() => {}); };
       worker.send({ type: 'start', ...launchCommand, cwd });
       worker.on('message', msg => {
         if (entry.ended) return;
         if (msg.type === 'output') { entry.output = (entry.output + msg.data).slice(-150000); send({ type: 'output', agentId: agent.id, data: msg.data }); }
-        else if (msg.type === 'ready') status(agent.id, 'running');
+        else if (msg.type === 'ready') status(agent.id, 'running', undefined, undefined, { injection: entry.injection });
         else if (msg.type === 'error') { entry.failed = true; status(agent.id, 'error', msg.error); }
         else if (msg.type === 'exit') { entry.ended = true; forget(); if (!entry.failed) status(agent.id, 'stopped', undefined, msg.exitCode); }
       });
@@ -86,14 +90,31 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
         else if (msg.type === 'deliver') {
           const entry = processes.get(msg.agentId);
           if (entry) {
-            // Keep control characters out of terminal input; submit as one prompt.
             const text = msg.text.replace(/[\x00-\x1f\x7f]/g, ' ');
-            entry.worker.send({ type: 'input', data: `[Relaydeck message] ${text}` });
-            setTimeout(() => { if (entry.worker.connected) entry.worker.send({ type: 'input', data: '\r' }); }, 100);
+            // Always land in the mail file (ladder fallback); only inject into
+            // the terminal when the agent's delivery mode asks for it.
+            await appendFile(entry.mailPath, `\n[Relaydeck message] ${text}\n`).catch(() => {});
+            if (msg.terminal) {
+              // Keep control characters out of terminal input; submit as one prompt.
+              entry.worker.send({ type: 'input', data: `[Relaydeck message] ${text}` });
+              setTimeout(() => { if (entry.worker.connected) entry.worker.send({ type: 'input', data: '\r' }); }, 100);
+            }
           }
         } else if (msg.type === 'sync') {
           try { send({ type: 'result', requestId: msg.requestId, result: await syncRepository(root, msg.input) }); }
           catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
+        } else if (msg.type === 'remove-artifacts') {
+          try {
+            const removed = [], missing = [];
+            for (const item of msg.items || []) {
+              if (item.kind !== 'file' && item.kind !== 'dir') { missing.push(item.ref); continue; }
+              const resolved = await insideRoot(root, item.ref);
+              let present = true;
+              try { await stat(resolved); } catch { present = false; }
+              if (present) { await rm(resolved, { recursive: true }); removed.push(resolved); } else missing.push(item.ref);
+            }
+            send({ type: 'result', requestId: msg.requestId, result: { removed, missing } });
+          } catch (error) { send({ type: 'result', requestId: msg.requestId, error: error.message }); }
         }
       } catch (error) { log(`Runner: ${error.message}`); }
     });

@@ -8,10 +8,11 @@ import { Store, id, secret, fail, str, tools } from './store.js';
 import { startRunner } from './runner.js';
 import { options, openBrowser } from './runtime.js';
 import { migrateWorkspace } from './migration.js';
-import { agentInstructions } from './onboarding.js';
-
+import { agentInstructions, proxyInstructions } from './onboarding.js';
+import { startCredentialProxy } from './proxy.js';
+import { agentCard, a2aHandle, a2aWebhook } from './a2a.js';
 const project = fileURLToPath(new URL('..', import.meta.url));
-export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false } = {}) {
+export async function createHost({ directory = path.join(project, '.relaydeck'), port = 4317, host = '127.0.0.1', local = true, root = process.cwd(), quiet = false, watchdogMs = 20000 } = {}) {
   fail(Number.isInteger(port) && port >= 0 && port <= 65535, 'Port must be an integer between 0 and 65535 (0 chooses an available port).');
   const app = express(), server = createServer(app);
   let ready = false, store;
@@ -28,7 +29,41 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
   } catch (error) { await new Promise(resolve => server.close(resolve)); throw error; }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const runners = new Map(), browsers = new Map(), buffers = new Map(), sessions = new Map(), pending = new Map(), tickets = new Map(), attempts = new Map();
+  const a2aStreams = new Map(); // taskId -> Set<ServerResponse> (A2A SSE streams)
+  // Terminal stream quality (spec §13): low-bandwidth links coalesce output.
+  // Per (browser, agent) buffers; high = immediate, balanced/low = batched.
+  const qualityMs = { high: 0, balanced: 40, low: 120 };
+  const outQueues = new Map(); // ws -> Map(agentId -> { buffer, reset, timer })
+  const terminalQueue = (browser, agentId) => {
+    let per = outQueues.get(browser);
+    if (!per) { per = new Map(); outQueues.set(browser, per); }
+    let q = per.get(agentId);
+    if (!q) { q = { buffer: '', reset: false, timer: null }; per.set(agentId, q); }
+    return q;
+  };
+  const flushTerminal = (browser, agentId) => {
+    const per = outQueues.get(browser); const q = per?.get(agentId); if (!q) return;
+    clearTimeout(q.timer); q.timer = null;
+    if (q.buffer || q.reset) { if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify({ type: 'terminal', agentId, data: q.buffer, reset: q.reset })); }
+    q.buffer = ''; q.reset = false;
+  };
+  const sendTerminal = (browser, agentId, data, reset) => {
+    const delay = qualityMs[browser.quality || 'high'] ?? 0;
+    if (!delay) { if (browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify({ type: 'terminal', agentId, data, reset })); return; }
+    const q = terminalQueue(browser, agentId);
+    if (reset) q.buffer = '';
+    q.reset = q.reset || reset; q.buffer += data;
+    if (q.buffer.length > 200000) return flushTerminal(browser, agentId);
+    if (!q.timer) q.timer = setTimeout(() => flushTerminal(browser, agentId), delay);
+  };
   let localRunner, closing = false;
+  // Credential proxy: runs in the host process, outside every agent harness.
+  const proxy = await startCredentialProxy({
+    authenticate: async token => { const actor = await store.auth(token); return actor && actor.role === 'agent' ? actor : null; },
+    serviceFor: (agent, hostname) => store.proxyServiceFor(agent, hostname),
+    host,
+  });
+  store.proxyAddress = proxy.address;
   const broadcast = () => { for (const [ws, actor] of browsers) if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'state', state: store.snapshot(actor) })); };
   const actorFor = req => {
     const bearer = req.headers.authorization?.replace(/^Bearer /, '');
@@ -81,6 +116,10 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [sid, s] of sessions) if (s.actor?.role === 'device' && s.actor.id === device.id) sessions.delete(sid);
     broadcast(); res.json(next);
   });
+  app.post('/api/devices/:id/rename', human, (req, res) => {
+    const next = store.renameDevice(req.actor, req.params.id, req.body.name);
+    broadcast(); res.json(next);
+  });
   app.delete('/api/devices/:id', admin, (req, res) => {
     const device = store.data.devices.find(d => d.id === req.params.id);
     fail(device, 'Device not found.', 404);
@@ -103,18 +142,25 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     for (const [key, value] of Object.entries(req.body)) { fail(tools.includes(key) && typeof value === 'boolean', 'Unknown tool setting.'); store.data.settings[key] = value; }
     store.activity(req.actor.id, 'settings', 'Updated enabled tools'); store.save(); broadcast(); res.json(store.data.settings);
   });
+  app.post('/api/proxy/services', admin, (req, res) => { broadcast(); res.json(store.addProxyService(req.actor, req.body)); });
+  app.delete('/api/proxy/services/:id', admin, (req, res) => { store.removeProxyService(req.actor, req.params.id); store.save(); broadcast(); res.json({ ok: true }); });
   app.post('/api/groups', human, (req, res) => {
     const members = req.body.members || [];
     fail(Array.isArray(members) && members.every(v => store.data.agents.some(a => a.id === v)), 'Choose valid group members.');
     const group = { id: id(), name: str(req.body.name, 'Group name', 80), members: [...new Set(members)] };
     store.data.groups.push(group); store.save(); broadcast(); res.json(group);
   });
-  app.post('/api/agents', human, (req, res) => {
+  app.post('/api/pins', human, (req, res) => { const result = store.tool(req.actor, 'pin', req.body); broadcast(); res.json(result.result); });
+  app.delete('/api/pins/:id', human, (req, res) => { const result = store.tool(req.actor, 'unpin', { pinId: req.params.id }); broadcast(); res.json(result.result); });
+  app.post('/api/groups/:id', admin, (req, res) => {
+    const group = store.updateGroup(req.actor, req.params.id, req.body);
+    broadcast(); res.json(group);
+  });  app.post('/api/agents', human, (req, res) => {
     fail(runners.has(req.body.deviceId), 'Device is not connected.');
     const { agent, token } = store.agent(req.actor, req.body);
-    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token }));
-    broadcast(); res.json({ ...agent, tokenHash: undefined });
-  });
+    const proxyInfo = { address: proxy.address, services: store.data.proxyServices.map(s => s.host) };
+    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token, pinned: store.data.pinned, memory: store.data.memory, proxy: proxyInfo }));
+    broadcast(); res.json({ ...agent, tokenHash: undefined });  });
   function controlled(req) {
     const a = store.data.agents.find(a => a.id === req.params.id);
     fail(a, 'Agent not found.', 404); fail(store.canControl(req.actor, a), 'You can only control agents on your own device.', 403); return a;
@@ -128,33 +174,80 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     broadcast(); res.json({ ...a, tokenHash: undefined });
   });
   app.get('/api/agents/:id/instructions', human, async (req, res) => {
-    res.json({ instructions: await agentInstructions(controlled(req)) });
-  });
+    const a = controlled(req);
+    const base = await agentInstructions(a, [...store.data.pinned, ...store.data.memory]);
+    res.json({ instructions: a.proxy ? base + proxyInstructions({ address: proxy.address, services: store.data.proxyServices.map(s => s.host) }) : base });  });
+  app.get('/api/agents/:id/terminal', human, (req, res) => {
+    const a = controlled(req);
+    const text = buffers.get(a.id) || '';
+    const tail = Math.min(Math.max(parseInt(req.query.tail, 10) || 20000, 1), 150000);
+    res.json({ bytes: text.length, text: text.slice(-tail) });  });
   app.post('/api/agents/:id/restart', human, (req, res) => {
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');
     fail(!['running', 'starting'].includes(a.status), 'Stop the current process before restarting.');
     a.status = 'starting'; a.error = undefined; a.exitCode = undefined; buffers.delete(a.id);
-    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id) })); broadcast(); res.json({ ok: true });
-  });
-  app.get('/api/agents/:id/bridge', human, (req, res) => {
+    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id), pinned: store.data.pinned, memory: store.data.memory, proxy: { address: proxy.address, services: store.data.proxyServices.map(s => s.host) } })); broadcast(); res.json({ ok: true });
+  });  app.get('/api/agents/:id/bridge', human, (req, res) => {
     const a = controlled(req), d = store.data.devices.find(d => d.id === a.deviceId);
-    const command = d.nodePath || 'node', args = [d.bridgePath || 'src/bridge.js'];
     const env = { RELAYDECK_SERVER_URL: `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`, RELAYDECK_AGENT_TOKEN: store.agentToken(a.id) };
-    const entry = { command, args, env };
-    const configurations = {
-      generic: { mcpServers: { relaydeck: entry } },
-      antigravity: { mcpServers: { relaydeck: entry } },
-      hermes: { mcp_servers: { relaydeck: entry } },
-      opencode: { mcp: { relaydeck: { type: 'local', command: [command, ...args], environment: env, enabled: true } } },
-      'opencode-v2': { mcp: { servers: { relaydeck: { type: 'local', command: [command, ...args], environment: env } } } },
-    };
-    res.json({ configurations, instructions: 'Add the matching configuration to your harness settings, then restart the agent. This key identifies only this agent. Call inbox at the start of each turn. All tool results include new messages. Use message or notice to reply; reading does not mark a message answered.' });
+    res.json({ env, instructions: 'No configuration file is needed: a harness launched from this GUI already inherits the bridge. From the agent\'s shell, call tools with: node $RELAYDECK_BRIDGE --call inbox \'{}\' (in PowerShell use $env:RELAYDECK_BRIDGE). This key identifies only this agent, so keep it private and use a separate environment for each agent identity. Call inbox at the start of each turn. All tool results include new messages. Use message or notice to reply; reading does not mark a message answered.' });
   });
   const deliver = messages => { for (const m of messages) for (const recipient of m.recipients) {
     const a = store.data.agents.find(a => a.id === recipient);
-    if (a?.delivery === 'terminal' && a.status === 'running') runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, text: `${m.fromName}: ${m.body}` }));
+    if (a?.status === 'running') {
+      const suffix = m.from === 'a2a' ? '\nThis came over A2A. Reply with the message tool to "a2a": use notice for your final answer, or message to ask the client a question.' : '';
+      runners.get(a.deviceId)?.send(JSON.stringify({ type: 'deliver', agentId: a.id, terminal: a.delivery === 'terminal', text: `${m.fromName}: ${m.body}${suffix}` }));
+    }
   } };
-  async function sync(actor, input) {
+  app.get('/api/memory', (req, res) => res.json({ memory: store.data.memory }));
+  app.post('/api/memory', admin, (req, res) => {
+    fail(typeof req.body?.body === 'string', 'Provide a memory note.');
+    const entry = store.remember(req.actor, req.body.body); store.save(); broadcast(); res.json(entry);
+  });
+  app.delete('/api/memory/:id', admin, (req, res) => {
+    store.forget(req.actor, req.params.id); broadcast(); res.json({ ok: true });
+  });
+  app.get('/api/artifacts', (req, res) => res.json({ artifacts: store.data.artifacts }));
+  app.post('/api/artifacts/remove-all', admin, async (req, res) => {
+    const byDevice = new Map();
+    for (const art of store.data.artifacts) {
+      if (art.kind !== 'file' && art.kind !== 'dir') continue;
+      const a = store.data.agents.find(x => x.id === art.byId);
+      if (!a) continue;
+      byDevice.set(a.deviceId, [...(byDevice.get(a.deviceId) || []), art]);
+    }
+    const results = [];
+    for (const [deviceId, items] of byDevice) {
+      const ws = runners.get(deviceId);
+      const deviceName = store.data.devices.find(d => d.id === deviceId)?.name || deviceId;
+      if (!ws) { results.push({ device: deviceName, error: 'Device is not connected.' }); continue; }
+      const requestId = id();
+      try {
+        const result = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => { pending.delete(requestId); reject(new Error('Device did not answer in time.')); }, 70000);
+          pending.set(requestId, { resolve, reject, timer, deviceId });
+          ws.send(JSON.stringify({ type: 'remove-artifacts', requestId, items }));
+        });
+        results.push({ device: deviceName, ...result });
+      } catch (error) { results.push({ device: deviceName, error: error.message }); }
+    }
+    store.data.artifacts = store.data.artifacts.filter(a => a.kind === 'service' || a.kind === 'port');
+    const removed = results.reduce((n, r) => n + (r.removed?.length || 0), 0);
+    store.activity(req.actor.id, 'artifacts', `Removed ${removed} declared file/directory artifact(s); services and ports stay listed`);
+    store.save(); broadcast(); res.json({ results });
+  });
+  // A2A (spec §11): an agent's reply to "a2a" drives the task state machine.
+  // notice = final answer (completed); message = question back (input-required).
+  const a2aReplies = newMessages => {
+    for (const m of newMessages) {
+      if (m.to !== 'a2a' || !store.data.agents.some(a => a.id === m.from)) continue;
+      const task = store.a2aOpenTask(m.from);
+      if (!task) continue;
+      const next = store.a2aTransition(task, m.type === 'notice' ? 'completed' : 'input-required', m.body);
+      a2aWebhook(store, next);
+      for (const stream of a2aStreams.get(next.id) || []) if (!stream.writableEnded) stream.write(`data: ${JSON.stringify({ kind: 'task', ...next })}\n\n`);
+    }
+  };  async function sync(actor, input) {
     fail(store.data.settings.sync, 'The host has disabled sync.', 403);
     let deviceId = input.deviceId;
     if (actor.role === 'agent') {
@@ -175,8 +268,25 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     const before = store.data.messages.length;
     try {
       const result = req.params.name === 'sync' ? await sync(req.actor, req.body) : store.tool(req.actor, req.params.name, req.body);
-      deliver(store.data.messages.slice(before)); broadcast(); res.json(result);
+      deliver(store.data.messages.slice(before)); a2aReplies(store.data.messages.slice(before)); broadcast(); res.json(result);
     } catch (error) { store.activity(req.actor.id, req.params.name, error.message, false); store.save(); broadcast(); throw error; }
+  });
+  // A2A (spec §11): the standard agent-to-agent protocol. One AgentCard per
+  // agent; the JSON-RPC binding authenticates with that agent's own key.
+  const a2aBase = req => `${req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${req.headers.host}`;
+  app.get('/.well-known/agent-card.json', (req, res) => {
+    const agentId = typeof req.query.agent === 'string' ? req.query.agent : null;
+    const agent = agentId ? store.data.agents.find(a => a.id === agentId) : store.data.agents[0];
+    if (!agent) return res.status(404).json({ error: 'No agents exist on this host yet. Launch one first.' });
+    res.setHeader('Content-Type', 'application/agent-card+json');
+    res.json(agentCard(agent, a2aBase(req)));
+  });
+  app.post('/a2a', (req, res) => {
+    const bearer = req.headers.authorization?.replace(/^Bearer /, '');
+    const actor = bearer && store.auth(bearer);
+    if (!actor || actor.role !== 'agent') return res.status(401).json({ jsonrpc: '2.0', id: req.body?.id ?? null, error: { code: -32001, message: 'Authenticate with the agent key shown on this agent\'s card (Bearer).' } });
+    req.actor = actor;
+    a2aHandle({ store, streams: a2aStreams, webhook: task => a2aWebhook(store, task) }, req, res);
   });
   app.use('/api', (req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
   app.use(express.static(path.join(project, 'dist')));
@@ -206,6 +316,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
           store.save(); ws.send(JSON.stringify({ type: 'ready', deviceId: d.id })); broadcast(); return;
         }
         if (browsers.has(ws)) {
+          if (msg.type === 'quality') { ws.quality = ['high', 'balanced', 'low'].includes(msg.level) ? msg.level : 'high'; return; }
+          if (msg.type === 'rtt') { if (typeof msg.t === 'number') ws.send(JSON.stringify({ type: 'rtt-pong', t: msg.t })); return; }
           const a = store.data.agents.find(a => a.id === msg.agentId);
           fail(a, 'Select an agent.');
           if (msg.type === 'subscribe') { ws.agentId = a.id; ws.send(JSON.stringify({ type: 'terminal', agentId: a.id, data: buffers.get(a.id) || '', reset: true })); return; }
@@ -221,11 +333,15 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
           if (msg.type === 'output') {
             fail(typeof msg.data === 'string' && msg.data.length < 1000000, 'Invalid terminal output.');
             buffers.set(a.id, ((msg.replace ? '' : buffers.get(a.id) || '') + msg.data).slice(-150000));
-            for (const [browser] of browsers) if (browser.agentId === a.id && browser.readyState === WebSocket.OPEN) browser.send(JSON.stringify({ type: 'terminal', agentId: a.id, data: msg.data, reset: !!msg.replace }));
-          } else if (msg.type === 'status') {
+            store.runtime.lastOutput.set(a.id, Date.now());
+            if (store.runtime.stalled.get(a.id)) { store.runtime.stalled.set(a.id, false); store.activity('system', 'resumed', `${a.name} is producing output again`, true); store.save(); broadcast(); }
+            for (const [browser] of browsers) if (browser.agentId === a.id && browser.readyState === WebSocket.OPEN) sendTerminal(browser, a.id, msg.data, !!msg.replace);          } else if (msg.type === 'status') {
             fail(['running', 'stopped', 'error'].includes(msg.status), 'Invalid status.');
+            Object.assign(a, { status: msg.status, error: msg.error?.slice(0, 2000), exitCode: msg.exitCode, ...(typeof msg.injection === 'string' && msg.injection ? { injection: msg.injection.slice(0, 200) } : {}) });
             Object.assign(a, { status: msg.status, error: msg.error?.slice(0, 2000), exitCode: msg.exitCode });
-            store.activity(a.id, 'process', msg.error || `${msg.status}${msg.exitCode == null ? '' : ` (exit ${msg.exitCode})`}`, msg.status !== 'error'); store.save(); broadcast();
+            a.killRequested = msg.status === 'running' ? a.killRequested : false;
+            if (msg.status === 'running' && !store.runtime.lastOutput.has(a.id)) store.runtime.lastOutput.set(a.id, Date.now());
+            if (msg.status !== 'running') { store.runtime.lastOutput.delete(a.id); store.runtime.stalled.set(a.id, false); }            store.activity(a.id, 'process', msg.error || `${msg.status}${msg.exitCode == null ? '' : ` (exit ${msg.exitCode})`}`, msg.status !== 'error'); store.save(); broadcast();
           }
         }
       } catch (error) { ws.send(JSON.stringify({ type: 'error', error: error.message })); if (!authenticated) ws.close(4003, 'Authentication failed'); }
@@ -233,6 +349,8 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     ws.on('error', () => {});
     ws.on('close', () => {
       clearTimeout(authTimer); browsers.delete(ws);
+      const per = outQueues.get(ws);
+      if (per) { for (const q of per.values()) clearTimeout(q.timer); outQueues.delete(ws); }
       if (closing) return;
       if (actor && runners.get(actor.id) === ws) {
         runners.delete(actor.id); const d = store.data.devices.find(d => d.id === actor.id); d.online = false;
@@ -243,6 +361,30 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     });
   });
   const heartbeat = setInterval(() => { for (const ws of wss.clients) { if (!ws.alive) ws.terminate(); else { ws.alive = false; ws.ping(); } } }, 15000);
+  // Watchdog: flag running agents that go silent; optionally stop them.
+  // This is the "did the harness eat the computer" guard from the glow-up.
+  const stallDefaults = { OpenCode: 120, pi: 120, omp: 120, Hermes: 180, 'Claude Code': 180, Codex: 180, Antigravity: 180 };
+  const watchdog = setInterval(() => {
+    let changed = false;
+    for (const a of store.data.agents) {
+      if (a.status !== 'running') { if (store.runtime.stalled.get(a.id)) { store.runtime.stalled.set(a.id, false); changed = true; } continue; }
+      const last = store.runtime.lastOutput.get(a.id);
+      if (!last) continue;
+      const silentSec = (Date.now() - last) / 1000;
+      const limitSec = a.stallAfterSec || stallDefaults[a.harness] || 180;
+      const stalled = silentSec > limitSec;
+      if (stalled !== !!store.runtime.stalled.get(a.id)) {
+        store.runtime.stalled.set(a.id, stalled); changed = true;
+        store.activity('system', stalled ? 'stalled' : 'resumed', `${a.name} ${stalled ? `showed no terminal output for ${Math.round(silentSec)}s` : 'is producing output again'}`, !stalled);
+      }
+      if (stalled && a.killAfterSec && silentSec >= a.killAfterSec && !a.killRequested) {
+        a.killRequested = true; changed = true;
+        runners.get(a.deviceId)?.send(JSON.stringify({ type: 'stop', agentId: a.id }));
+        store.activity('system', 'watchdog', `${a.name} was stopped by its hard timeout (${a.killAfterSec}s without output)`, false);
+      }
+    }
+    if (changed) { store.save(); broadcast(); }
+  }, watchdogMs);
   const address = hostAddress(host, server.address().port);
   ready = true;
   if (local) {
@@ -251,13 +393,13 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     if (!store.auth(token)) { token = store.device('Host device').token; writeFileSync(file, token, { mode: 0o600 }); }
     localRunner = await startRunner({ server: address, token, root, log: quiet ? () => {} : console.log });
   }
-  if (!quiet) { console.log(`\nRelaydeck host: ${address}\nHost key: ${store.data.adminToken}\n${host === '0.0.0.0' ? 'Listening on all interfaces. Use HTTPS or a private network for remote clients.\n' : ''}`); }
-  return { app, server, store, address, ticket() { const key = secret(); tickets.set(key, { actor: { role: 'admin', id: 'human', name: 'You' }, expires: Date.now() + 60000 }); return key; }, async close() {
+  if (!quiet) { console.log(`\nRelaydeck host: ${address}\nHost key: ${store.data.adminToken}\nCredential proxy: ${proxy.address}\n${host === '0.0.0.0' ? 'Listening on all interfaces. Use HTTPS or a private network for remote clients.\n' : ''}`); }
+  return { app, server, store, address, proxy, ticket() { const key = secret(); tickets.set(key, { actor: { role: 'admin', id: 'human', name: 'You' }, expires: Date.now() + 60000 }); return key; }, async close() {
     closing = true;
-    localRunner?.stop(); clearInterval(heartbeat);
+    localRunner?.stop(); clearInterval(heartbeat); clearInterval(watchdog);
     for (const p of pending.values()) { clearTimeout(p.timer); p.reject(new Error('Host shutting down.')); } pending.clear();
     for (const ws of wss.clients) ws.terminate();
-    await new Promise(resolve => server.close(resolve)); wss.close(); store.close();
+    await new Promise(resolve => server.close(resolve)); await proxy.close(); wss.close(); store.close();
   } };
 }
 function hostAddress(host, port) {

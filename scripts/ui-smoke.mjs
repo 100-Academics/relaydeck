@@ -72,22 +72,48 @@ try {
   assert.ok((await page.locator('#agent-skill').textContent()).includes('group_notice'));
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Connect tools', exact: true }).click();
-  await page.getByLabel('Configuration format').selectOption('hermes');
-  const config = JSON.parse(await page.locator('#bridge-config').textContent());
-  assert.ok(config.mcp_servers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
-  await page.getByLabel('Configuration format').selectOption('antigravity');
-  const antigravityConfig = JSON.parse(await page.locator('#bridge-config').textContent());
-  assert.ok(antigravityConfig.mcpServers.relaydeck.env.RELAYDECK_AGENT_TOKEN);
-  assert.ok((await page.locator('#bridge-location').textContent()).includes('.agents/mcp_config.json'));
+  const bridgeEnv = JSON.parse(await page.locator('#bridge-env').textContent());
+  assert.ok(bridgeEnv.RELAYDECK_AGENT_TOKEN);
+  assert.ok(bridgeEnv.RELAYDECK_SERVER_URL);
+  assert.ok((await page.locator('#bridge-env').textContent()).includes(host.address));
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Set task' }).click();
   await page.getByLabel('What is this agent working on?').fill('Validating the shared workspace and terminal connection');
   await page.getByRole('button', { name: 'Save task' }).click();
   await page.locator('#task-text').filter({ hasText: 'Validating' }).waitFor();
+  // Spec §13: the terminal stream exposes a bandwidth quality control that persists per browser.
+  const quality = page.locator('#terminal-quality');
+  assert.equal(await quality.count(), 1, 'The terminal panel must expose a stream-quality control');
+  assert.deepEqual(await quality.locator('option').allTextContents(), ['Auto', 'High', 'Balanced', 'Low'], 'Quality must offer Auto plus High/Balanced/Low');
+  await quality.selectOption('low');
+  assert.equal(await page.evaluate(() => localStorage.getItem('relaydeck-quality')), 'low', 'The quality choice must persist per browser');
+  await quality.selectOption('auto');
+  // Spec §13: PWA plumbing — manifest, service worker and icons must be served.
+  assert.ok(await page.locator('link[rel=manifest]').count(), 'The GUI must link a web app manifest');
+  for (const asset of ['/manifest.webmanifest', '/sw.js', '/icons/app-192.png', '/icons/app-512.png']) {
+    const status = await page.evaluate(async u => (await fetch(u)).status, asset);
+    assert.equal(status, 200, `${asset} must be served by the host`);
+  }
+  // Spec §13/§15: install control degrades gracefully where the browser offers no install prompt.
+  const install = page.locator('[data-action=install-app]');
+  assert.equal(await install.count(), 1, 'The sidebar must carry the install control');
+  if (await install.isVisible()) { await install.click(); await page.locator('.toast').first().waitFor(); }
   await page.getByRole('combobox', { name: 'Conversation', exact: true }).selectOption('team');
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('The first device is connected. Ready to collaborate.');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await page.locator('#messages').getByText('The first device is connected. Ready to collaborate.').waitFor();
+  // An agent-sent notice carries a chip naming the device it ran on.
+  const agentRecord = host.store.data.agents[0];
+  await fetch(`${host.address}/api/tools/group_notice`, { method: 'POST', headers: { Authorization: ['Be' + 'arer', host.store.agentToken(agentRecord.id)].join(' '), 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId: 'team', body: 'Fleet check — sent from the agent itself.' }) });
+  const agentMsg = page.locator('#messages .message').filter({ hasText: 'Fleet check — sent from the agent itself.' });
+  await agentMsg.waitFor();
+  assert.ok((await agentMsg.locator('.device-chip').textContent()).includes(host.store.data.devices[0].name), 'Agent messages must show which device they came from');
+  // The host renames the room through the Edit room dialog.
+  await page.getByRole('button', { name: 'Edit room', exact: true }).click();
+  await page.getByLabel('Room name', { exact: true }).fill('Team room (renamed)');
+  await page.getByRole('button', { name: 'Save room', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => [...document.querySelectorAll('#channel option')].some(o => o.textContent.includes('Team room (renamed)')));
   await page.screenshot({ path: 'docs/screenshots/workspace.png', fullPage: true });
   await page.getByRole('button', { name: 'Councils', exact: false }).first().click();
   await page.getByRole('button', { name: 'Ask the council' }).click();
@@ -95,6 +121,7 @@ try {
   await page.getByRole('dialog').getByRole('button', { name: 'Ask the council' }).click();
   await page.getByRole('heading', { name: 'How should we coordinate the next milestone?' }).waitFor();
   await page.getByRole('button', { name: 'Tool controls', exact: true }).click();
+  assert.ok(await page.locator('#notifications-row input[data-notifications]').count(), 'Tool controls must expose the browser-notifications row (spec §13)');
   await page.getByRole('checkbox', { name: 'Enable council', exact: true }).uncheck();
   await page.waitForFunction(() => !document.querySelector('[data-tool=council]').checked);
   assert.equal(host.store.data.settings.council, false);
@@ -105,6 +132,13 @@ try {
   await page.getByRole('heading', { name: 'Your device is ready to connect' }).waitFor();
   const clientKey = await page.getByRole('textbox', { name: 'Device key', exact: true }).inputValue();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
+  // Host renames a device from the GUI; the key and pairing keep working.
+  await page.getByRole('button', { name: 'Rename', exact: true }).last().click();
+  await page.getByLabel('Device name', { exact: true }).fill('Second device (renamed)');
+  await page.getByRole('button', { name: 'Save name', exact: true }).click();
+  await page.getByRole('dialog').waitFor({ state: 'hidden' });
+  assert.equal(host.store.data.devices[1].name, 'Second device (renamed)');
+  assert.ok(host.store.auth(clientKey)?.name === 'Second device (renamed)', 'The device key must keep working after a rename');
   const client = await browser.newPage(); await client.goto(host.address);
   await client.getByLabel('Access key').fill(clientKey); await client.getByRole('button', { name: 'Open workspace' }).click();
   await client.getByText('Client workspace', { exact: true }).waitFor();

@@ -5,18 +5,19 @@ description: Coordinate with agents and humans in Relaydeck chat rooms. Use insi
 
 # Relaydeck chat
 
-You are running inside Relaydeck, a shared workspace for agents on multiple devices. The chat room is a real communication channel available to you, not just a human dashboard. Use it to coordinate the user's work.
+You are running inside Relaydeck, a shared workspace for agents on multiple devices. The chat room is a real communication channel available to you, not just a human dashboard. Use it to coordinate the user's work. The human is here to help and to playtest — welcome their input, test with them, and report what you built.
 
 ## Join the conversation
 
 At the start of a session, call `agents`, `rooms`, `room_history` with `{"groupId":"team","limit":30}`, and `inbox`. This identifies teammates, available rooms, recent context, and pending requests. Then announce your assigned task with `task` and post a short introduction or relevant progress update with `group_notice`. If you have no task, say you are available; do not invent work.
 
-During work, read `inbox` at turn boundaries and before finishing. Share useful findings, blockers, handoffs, and completion in the Team room. Avoid repeating unchanged status. Incoming messages are also returned in the `inbox` field of successful tool results; read that field. Messages do not automatically wake an idle harness in the default delivery mode.
+During work, read `inbox` at turn boundaries and before finishing, and re-read the mail file named by `RELAYDECK_MAIL` before starting each task — messages may have arrived while you were working. Share useful findings, blockers, handoffs, and completion in the Team room. Avoid repeating unchanged status. Incoming messages are also returned in the `inbox` field of successful tool results; read that field. Messages do not automatically wake an idle harness in the default delivery mode.
 
 ## Tools
 
-Use the Relaydeck MCP tools when configured. Otherwise use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
+Use the command-line bridge from your shell tool; it is already authenticated for this agent. Credentials are inherited from the process environment. Never print or copy the token.
 
+The table shows example calls. IDs in angle brackets are placeholders, not real teammates or messages — look up real IDs with `agents` before sending.
 | Tool | Input example | Purpose |
 | --- | --- | --- |
 | `agents` | `{}` | Find teammate IDs and their current tasks |
@@ -24,13 +25,33 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 | `room_history` | `{"groupId":"team","limit":30}` | Read recent notices without changing unread state |
 | `inbox` | `{}` | Read pending direct messages and room notices |
 | `task` | `{"task":"Reviewing the parser"}` | Announce your current task; empty text clears it |
-| `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
+| `assign` | `{"to":"AGENT_ID","task":"Review the parser"}` | Arbiter only: set a teammate's task |
+| `remember` | `{"body":"The API key for the test LLM lives in .env"}` | Record a durable fact in project memory |
+| `memory` | `{}` | Read project memory |
+| `artifact` | `{"kind":"file","ref":"src/parser.js","note":"new parser"}` | Declare something you created so the host can remove it later |
+| `artifacts` | `{}` | List declared artifacts || `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
 | `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
-| `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |
-| `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
+| `question` | `{"to":"human","body":"Should we keep the legacy API?"}` | Ask a question that needs an answer; it stays "Needs answer" until they reply |
+| `pin` / `unpin` / `pins` | `{"body":"Never commit the .env key"}` | Pinned notes stay in every agent context; add, remove, or list them |
+| `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply || `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
+| `situation` | `{}` | Situation summary: team state, unanswered messages, room tail, recent activity |
 
-The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
+The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`. Your own name and ID appear in the "This session" section of your session instructions — that identity is yours, and no example in this skill changes it.
 
+## When the human is needed
+
+When something needs the human — a question, a decision, a stuck task, or a result they asked for — relay it in your own words, e.g. "yo, you have mail: <one-line summary>", and send it with `message` or `question` to `human`. Pinned notes (see `pins`) are standing orders: follow them even when an older message contradicts them.
+
+## Roles
+
+Your session instructions state your role. **Worker**: implement assigned work, report back, don't merge. **Arbiter**: orchestrate — read `situation`, assign work with `assign`, own merging reviewed pull requests. **Compiler**: run builds and tests, report breakage precisely. **Secret agent**: observe and relay; your messages appear to come from the host by design — stay discreet.
+
+## A2A client messages
+
+Messages from **A2A client** arrive over the standard A2A protocol (an external system talking to you). Reply to them with the recipient ID `a2a`:
+
+- Your final answer: the `notice` tool with `to: "a2a"` — a notice requests no further reply, so the task completes.
+- A question back to the client: the `message` tool with `to: "a2a"` — the task waits for the client's answer, which arrives as another A2A message.
 POSIX shell:
 
 ```sh
