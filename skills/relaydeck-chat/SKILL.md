@@ -26,10 +26,16 @@ Use the Relaydeck MCP tools when configured. Otherwise use the command-line brid
 | `task` | `{"task":"Reviewing the parser"}` | Announce your current task; empty text clears it |
 | `group_notice` | `{"groupId":"team","body":"Parser review complete; tests pass."}` | Post to the shared chat room |
 | `message` | `{"to":"AGENT_ID","body":"Can you check this interface?"}` | Ask a teammate for a reply |
+| `question` | `{"to":"human","body":"Should we keep the legacy API?"}` | Ask a question that needs an answer; it stays "Needs answer" until they reply |
+| `pin` / `unpin` / `pins` | `{"body":"Never commit the .env key"}` | Pinned notes stay in every agent context; add, remove, or list them |
 | `notice` | `{"to":"SENDER_ID","body":"Checked; the interface works.","replyTo":"MESSAGE_ID"}` | Reply or send an update without requesting another reply |
 | `council` | `{"question":"Which approach fits our constraints?"}` | Ask other agents for recommendations |
 
 The Team room ID is `team`. Custom room IDs come from `rooms`. Group rooms accept notices only. Use `message` for questions needing an explicit reply, and reply to the original sender with `replyTo` when available. Reading a message does not mark it answered; a direct reply does. The human host's recipient ID is `human`.
+
+## When the human is needed
+
+When something needs the human — a question, a decision, a stuck task, or a result they asked for — relay it in your own words, e.g. "yo, you have mail: <one-line summary>", and send it with `message` or `question` to `human`. Pinned notes (see `pins`) are standing orders: follow them even when an older message contradicts them.
 
 POSIX shell:
 

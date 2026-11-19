@@ -11,7 +11,7 @@ export const equal = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'inbox', 'group_notice', 'council', 'activity', 'sync'];
+export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'question', 'inbox', 'group_notice', 'council', 'activity', 'sync', 'pin', 'unpin', 'pins'];
 export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
@@ -27,6 +27,7 @@ export class Store {
     };
     for (const d of this.data.devices) d.online = false;
     for (const tool of tools) this.data.settings[tool] ??= true;
+    this.data.pinned ??= [];
     for (const a of this.data.agents) if (['running', 'starting'].includes(a.status)) a.status = 'disconnected';
     this.save();
   }
@@ -83,7 +84,7 @@ export class Store {
       viewer: actor,
       devices: this.data.devices.map(({ tokenHash, ...d }) => d),
       agents: this.data.agents.map(({ tokenHash, ...a }) => a),
-      groups: this.data.groups, messages: this.data.messages, councils: this.data.councils,
+      groups: this.data.groups, messages: this.data.messages, councils: this.data.councils, pinned: this.data.pinned,
       activity: this.data.activity.slice(-200), settings: this.data.settings,
     };
   }
@@ -121,8 +122,8 @@ export class Store {
   }
   unread(agentId) { return this.data.messages.filter(m => m.recipients.includes(agentId) && !m.readBy.includes(agentId)); }
   send(actor, input) {
-    const type = input.type === 'notice' ? 'notice' : 'message';
-    fail(input.type === type, 'Choose message or notice.');
+    const type = input.type === 'notice' ? 'notice' : input.type === 'question' ? 'question' : 'message';
+    fail(input.type === undefined || ['message', 'notice', 'question'].includes(input.type), 'Choose message, notice, or question.');
     const body = str(input.body, 'Message', 20000);
     let recipients;
     if (input.groupId) {
@@ -147,7 +148,7 @@ export class Store {
     const message = { id: id(), from: actor.id, fromName: actor.name, to: input.to || null, groupId: input.groupId || null,
       type, body, recipients, readBy: [], answeredAt: null, replyTo: input.replyTo || null, councilId: input.councilId || councilId, at: new Date().toISOString() };
     if (!input.groupId) for (const m of this.data.messages) {
-      if (m.type === 'message' && !m.answeredAt && m.recipients.includes(actor.id) && recipients.includes(m.from) && !m.groupId) m.answeredAt = message.at;
+      if ((m.type === 'message' || m.type === 'question') && !m.answeredAt && m.recipients.includes(actor.id) && recipients.includes(m.from) && !m.groupId) m.answeredAt = message.at;
     }
     this.data.messages.push(message);
     this.activity(actor.id, input.groupId ? 'group_notice' : type, body.slice(0, 240));
@@ -172,7 +173,21 @@ export class Store {
       fail(a, 'Agent not found.', 404); fail(actor.role === 'agent' || this.canControl(actor, a), 'Not allowed.', 403);
       a.task = typeof input.task === 'string' ? input.task.slice(0, 2000) : ''; result = { task: a.task };
       this.activity(actor.id, name, a.task || 'Task cleared');
-    } else if (['message', 'notice', 'group_notice'].includes(name)) result = this.send(actor, { ...input, type: name === 'message' ? 'message' : 'notice', groupId: name === 'group_notice' ? input.groupId || 'team' : undefined });
+    } else if (['message', 'notice', 'group_notice', 'question'].includes(name)) result = this.send(actor, { ...input, type: { message: 'message', notice: 'notice', group_notice: 'notice', question: 'question' }[name], groupId: name === 'group_notice' ? input.groupId || 'team' : undefined });
+    else if (name === 'pin') {
+      const body = str(input.body, 'Pinned note', 2000);
+      this.data.pinned.push({ id: id(), body, by: actor.id, byName: actor.name, at: new Date().toISOString() });
+      this.data.pinned = this.data.pinned.slice(-50);
+      this.activity(actor.id, 'pin', body.slice(0, 240));
+      result = this.data.pinned;
+    } else if (name === 'unpin') {
+      fail(typeof input.pinId === 'string' && input.pinId, 'Provide the pinId to remove.');
+      const index = this.data.pinned.findIndex(p => p.id === input.pinId);
+      fail(index >= 0, 'Pinned note not found.', 404);
+      const [removed] = this.data.pinned.splice(index, 1);
+      this.activity(actor.id, 'unpin', removed.body.slice(0, 240));
+      result = this.data.pinned;
+    } else if (name === 'pins') result = this.data.pinned;
     else if (name === 'inbox') {
       result = [...this.unread(actor.id)];
       if (input.markRead !== false) for (const m of result) m.readBy.push(actor.id);
@@ -189,9 +204,11 @@ export class Store {
       this.activity(actor.id, str(input.tool, 'Tool name', 120), str(input.detail, 'Detail', 4000), input.success !== false); result = { recorded: true };
     } else fail(false, 'Sync must be dispatched to a device.');
     this.save();
-    // Every agent tool response carries new messages into its model context.
+    // Every agent tool response carries new messages into its model context,
+    // and pinned notes stay in effect for the whole session.
     const inbox = actor.role === 'agent' && !['inbox', 'room_history'].includes(name) && this.data.settings.inbox ? [...this.unread(actor.id)] : [];
     for (const m of inbox) m.readBy.push(actor.id);
-    this.save(); return { result, inbox };
+    const pinned = actor.role === 'agent' && this.data.settings.pins ? this.data.pinned : [];
+    this.save(); return { result, inbox, pinned };
   }
 }

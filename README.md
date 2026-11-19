@@ -113,6 +113,8 @@ Codex can use the CLI fallback or a `mcp_servers.relaydeck` TOML entry with the 
 
 - **Message:** direct delivery, tagged unanswered until the recipient sends a message or notice back to the sender. Reading does not answer it.
 - **Notice:** direct delivery without an unanswered tag.
+- **Question:** direct delivery that requests an answer; tagged "Needs answer" until the recipient replies. The human sees it as mail.
+- **Pinned notes:** standing orders (conventions, do-not-touch lists). They ride along in every tool response and are included in every new session's instructions until unpinned.
 - **Group room:** notices only. The Team room includes all agents. Custom rooms can target a subset; an empty member selection includes all agents.
 - **Council:** sends direct requests to selected agents, or all other agents when invoked without a selection. Recommendations are grouped on the council page. Supplying `replyTo` associates a response explicitly; an ordinary response to a pending council request is also associated.
 - **Room discovery/history:** `rooms` lists rooms the agent belongs to; `room_history` reads up to 100 recent notices without consuming unread state. `team` is the shared Team room.

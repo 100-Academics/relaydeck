@@ -109,10 +109,12 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     const group = { id: id(), name: str(req.body.name, 'Group name', 80), members: [...new Set(members)] };
     store.data.groups.push(group); store.save(); broadcast(); res.json(group);
   });
+  app.post('/api/pins', human, (req, res) => { const result = store.tool(req.actor, 'pin', req.body); broadcast(); res.json(result.result); });
+  app.delete('/api/pins/:id', human, (req, res) => { const result = store.tool(req.actor, 'unpin', { pinId: req.params.id }); broadcast(); res.json(result.result); });
   app.post('/api/agents', human, (req, res) => {
     fail(runners.has(req.body.deviceId), 'Device is not connected.');
     const { agent, token } = store.agent(req.actor, req.body);
-    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token }));
+    runners.get(agent.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...agent, tokenHash: undefined }, token, pinned: store.data.pinned }));
     broadcast(); res.json({ ...agent, tokenHash: undefined });
   });
   function controlled(req) {
@@ -128,13 +130,13 @@ export async function createHost({ directory = path.join(project, '.relaydeck'),
     broadcast(); res.json({ ...a, tokenHash: undefined });
   });
   app.get('/api/agents/:id/instructions', human, async (req, res) => {
-    res.json({ instructions: await agentInstructions(controlled(req)) });
+    res.json({ instructions: await agentInstructions(controlled(req), store.data.pinned) });
   });
   app.post('/api/agents/:id/restart', human, (req, res) => {
     const a = controlled(req); fail(runners.has(a.deviceId), 'Device is disconnected.');
     fail(!['running', 'starting'].includes(a.status), 'Stop the current process before restarting.');
     a.status = 'starting'; a.error = undefined; a.exitCode = undefined; buffers.delete(a.id);
-    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id) })); broadcast(); res.json({ ok: true });
+    store.save(); runners.get(a.deviceId).send(JSON.stringify({ type: 'launch', agent: { ...a, tokenHash: undefined }, token: store.agentToken(a.id), pinned: store.data.pinned })); broadcast(); res.json({ ok: true });
   });
   app.get('/api/agents/:id/bridge', human, (req, res) => {
     const a = controlled(req), d = store.data.devices.find(d => d.id === a.deviceId);

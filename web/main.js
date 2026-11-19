@@ -1,11 +1,11 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { createIcons, Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X } from 'lucide';
+import { createIcons, Activity, ArrowUpRight, Bell, BellOff, BellRing, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Pin, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X } from 'lucide';
 import '@xterm/xterm/css/xterm.css';
 import './style.css';
 import './dark.css';
 
-const icons = { Activity, ArrowUpRight, Bell, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X };
+const icons = { Activity, ArrowUpRight, Bell, BellOff, BellRing, Check, ChevronDown, CircleHelp, Command, Copy, GitBranch, Globe, Laptop, LogOut, MessageSquare, Monitor, MoreHorizontal, Network, Pin, Plus, Radio, Send, Settings2, ShieldCheck, Square, TerminalSquare, Users, Sun, Moon, X };
 const app = document.querySelector('#app'), dialog = document.querySelector('#dialog');
 let state, page = 'workspace', selected, channel = 'team', ws, terminal, fit, resizeObserver, retry, loggedOut = false;
 let connected = false, modalCleanup;
@@ -16,7 +16,7 @@ const button = (action, text, name = '', cls = '') => `<button class="${cls}" da
 const time = value => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 const agent = () => state?.agents.find(a => a.id === selected);
 const device = id => state?.devices.find(d => d.id === id);
-const name = id => id === 'human' ? 'Host' : state.agents.find(a => a.id === id)?.name || device(id)?.name || 'Agent';
+const name = id => id === 'human' ? 'Human (host)' : state.agents.find(a => a.id === id)?.name || device(id)?.name || 'Agent';
 const controlled = a => state.viewer.role === 'admin' || a?.deviceId === state.viewer.id;
 const lifecycleButton = a => !controlled(a) ? '' : a.status === 'running' ? `<button data-action="stop" class="icon-button stop-button" aria-label="Stop agent">${icon('square')}</button>` : ['stopped', 'error'].includes(a.status) ? button('restart', 'Restart', '', 'small-button') : '';
 const agentActions = a => `${status(a)}${controlled(a) ? `${button('startup', 'Startup', 'settings-2', 'small-button')}${button('skill', 'Agent skill', 'message-square', 'small-button')}${button('bridge', 'Connect tools', 'command', 'small-button')}` : ''}${lifecycleButton(a)}`;
@@ -60,7 +60,7 @@ function login() {
   paintIcons(); document.querySelector('#login-form').onsubmit = async ev => { ev.preventDefault(); try { await api('/login', Object.fromEntries(new FormData(ev.target))); loggedOut = false; await boot(); } catch (err) { document.querySelector('#login-error').textContent = err.message; } };
 }
 function skeleton() {
-  app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Relaydeck home"><img src="/relaydeck.svg" alt=""/>relaydeck<span>shell</span></a><div class="workspace-label">${icon('network')} Shared workspace</div><nav aria-label="Main navigation">${[['workspace', 'Workspace', 'terminal-square'], ['councils', 'Councils', 'users'], ['devices', 'Devices', 'monitor'], ['sync', 'Repository sync', 'git-branch'], ['settings', 'Tool controls', 'settings-2']].map(([id, label, i]) => `<button data-page="${id}">${icon(i)}${label}<span id="nav-${id}"></span></button>`).join('')}</nav><div class="rail-heading">Agents ${button('launch', '', 'plus', 'icon-button')}</div><div id="roster" class="roster"></div><div class="sidebar-bottom"><div class="role-icon">${icon('shield-check')}</div><div><strong>${state.viewer.role === 'admin' ? 'Host workspace' : 'Client workspace'}</strong><small>${e(state.viewer.name)}</small></div>${button('logout', '', 'log-out', 'icon-button')}</div></aside><main class="main"><header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-tools"><div id="connection" class="connection"></div>${themeButton()}</div></header><div id="content"></div><footer><span>Relaydeck <span class="footer-dot">•</span> Your harnesses, connected.</span>${button('help', 'Connection guide', 'circle-help', 'text-button')}</footer></main></div>`;
+  app.innerHTML = `<div class="shell"><aside class="sidebar"><a class="brand" href="/" aria-label="Relaydeck home"><img src="/relaydeck.svg" alt=""/>relaydeck<span>shell</span></a><div class="workspace-label">${icon('network')} Shared workspace</div><nav aria-label="Main navigation">${[['workspace', 'Workspace', 'terminal-square'], ['councils', 'Councils', 'users'], ['devices', 'Devices', 'monitor'], ['sync', 'Repository sync', 'git-branch'], ['settings', 'Tool controls', 'settings-2']].map(([id, label, i]) => `<button data-page="${id}">${icon(i)}${label}<span id="nav-${id}"></span></button>`).join('')}</nav><div class="rail-heading">Agents ${button('launch', '', 'plus', 'icon-button')}</div><div id="roster" class="roster"></div><div class="sidebar-bottom"><div class="role-icon">${icon('shield-check')}</div><div><strong>${state.viewer.role === 'admin' ? 'Host workspace' : 'Client workspace'}</strong><small>${e(state.viewer.name)}</small></div>${button('logout', '', 'log-out', 'icon-button')}</div></aside><main class="main"><header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="topbar-tools"><div id="connection" class="connection"></div>${notificationButton()}${themeButton()}</div></header><div id="content"></div><footer><span>Relaydeck <span class="footer-dot">•</span> Your harnesses, connected.</span>${button('help', 'Connection guide', 'circle-help', 'text-button')}</footer></main></div>`;
   render();
 }
 function roster() {
@@ -72,23 +72,49 @@ function roster() {
 function header(title, subtitle, action = '') { return `<div class="page-heading"><div><h1>${title}</h1><p>${subtitle}</p></div>${action}</div>`; }
 function teamStrip() {
   const running = state.agents.filter(a => a.status === 'running').length, online = state.devices.filter(d => d.online).length;
-  const unanswered = state.messages.filter(m => m.type === 'message' && !m.answeredAt).length;
+  const unanswered = state.messages.filter(m => ['message', 'question'].includes(m.type) && !m.answeredAt).length;
   return `<div class="team-strip"><div class="team-mark">${icon('network')}</div><div><strong>Your team, in sync.</strong><span>Harnesses run on their devices. The conversation lives here.</span></div><div class="team-numbers"><span><b>${running}</b> running</span><span><b>${online}</b> ${online === 1 ? 'device' : 'devices'}</span><span><b>${unanswered}</b> unanswered</span></div></div>`;
 }
 function agentPicker() { return `<div class="mobile-agent-switch"><label for="agent-picker">Agent terminal</label><select id="agent-picker">${state.agents.map(a => `<option value="${a.id}" ${a.id === selected ? 'selected' : ''}>${e(a.name)} · ${e(a.harness)}</option>`).join('')}</select></div>`; }
 function workspace() {
   const a = agent();
-  return `${header('Agent workspace', 'A shared place for independent minds.', button('launch', 'Launch agent', 'plus', 'primary'))}<div id="team-strip">${teamStrip()}</div>${state.agents.length ? agentPicker() : ''}<div class="work-grid"><section class="terminal-panel"><div class="panel-top"><div>${icon('terminal-square')}<strong id="terminal-name">${a ? e(a.name) : 'Your next agent starts here'}</strong></div><div id="terminal-actions">${a ? `${agentActions(a)}` : '<span class="muted">Ready when you are</span>'}</div></div><div id="terminal-meta" class="terminal-meta">${a ? `${e(a.harness)}<span>${e(device(a.deviceId)?.name)}</span><span title="${e(a.cwd)}">${e(a.cwd)}</span>` : 'Hermes, OpenCode, Claude Code, or any terminal harness.'}</div><div class="terminal-body" id="terminal-body">${a ? '<div id="terminal"></div>' : `<div class="terminal-empty"><div class="orbit"><span>${icon('terminal-square')}</span><b></b><i></i></div><h2>Bring your own intelligence.</h2><p>Run the harness you already use.<br>Give it a team to talk to.</p>${button('launch', 'Launch your first agent', 'plus', 'terminal-cta')}<small>Real terminals. Local processes. Shared context.</small></div>`}</div><div class="task-bar">${icon('activity')}<div id="task-text">${e(a?.task || 'No task announced')}</div>${a ? button('task', 'Set task', '', 'text-button') : ''}</div><div id="process-error" class="process-error">${e(a?.error || '')}</div></section><section class="conversation"><div class="panel-top"><div>${icon('message-square')}<strong>Conversation</strong></div>${button('group', '', 'plus', 'icon-button')}</div><div class="channel-picker"><select id="channel" aria-label="Conversation">${channelOptions()}</select><span>${icon('chevron-down')}</span></div><div id="messages" class="messages" aria-live="polite"></div><form id="compose" class="composer"><textarea name="body" aria-label="Message" placeholder="Share an update with the team…" rows="3" maxlength="20000" required></textarea><div><select name="kind" aria-label="Message type"><option value="notice">Notice</option><option value="message">Message · reply requested</option></select><button type="submit" class="send-button" aria-label="Send">${icon('send')}</button></div><small id="compose-hint">Notices keep everyone in the loop. No reply needed.</small></form></section></div><section class="activity-section"><div class="section-title"><h2>Recent activity</h2><span>Live across your workspace</span></div><div id="activity"></div></section>`;
+  return `${header('Agent workspace', 'A shared place for independent minds.', button('launch', 'Launch agent', 'plus', 'primary'))}<div id="team-strip">${teamStrip()}</div>${state.agents.length ? agentPicker() : ''}<div class="work-grid"><section class="terminal-panel"><div class="panel-top"><div>${icon('terminal-square')}<strong id="terminal-name">${a ? e(a.name) : 'Your next agent starts here'}</strong></div><div id="terminal-actions">${a ? `${agentActions(a)}` : '<span class="muted">Ready when you are</span>'}</div></div><div id="terminal-meta" class="terminal-meta">${a ? `${e(a.harness)}<span>${e(device(a.deviceId)?.name)}</span><span title="${e(a.cwd)}">${e(a.cwd)}</span>` : 'Hermes, OpenCode, Claude Code, or any terminal harness.'}</div><div class="terminal-body" id="terminal-body">${a ? '<div id="terminal"></div>' : `<div class="terminal-empty"><div class="orbit"><span>${icon('terminal-square')}</span><b></b><i></i></div><h2>Bring your own intelligence.</h2><p>Run the harness you already use.<br>Give it a team to talk to.</p>${button('launch', 'Launch your first agent', 'plus', 'terminal-cta')}<small>Real terminals. Local processes. Shared context.</small></div>`}</div><div class="task-bar">${icon('activity')}<div id="task-text">${e(a?.task || 'No task announced')}</div>${a ? button('task', 'Set task', '', 'text-button') : ''}</div><div id="process-error" class="process-error">${e(a?.error || '')}</div></section><section class="conversation"><div class="panel-top"><div>${icon('message-square')}<strong>Conversation</strong></div>${button('group', '', 'plus', 'icon-button')}</div><div class="channel-picker"><select id="channel" aria-label="Conversation">${channelOptions()}</select><span>${icon('chevron-down')}</span></div><div class="pins-panel" id="pins-panel">${pinsPanel()}</div><div id="messages" class="messages" aria-live="polite"></div><form id="compose" class="composer"><textarea name="body" aria-label="Message" placeholder="Share an update with the team…" rows="3" maxlength="20000" required></textarea><div><select name="kind" aria-label="Message type"><option value="notice">Notice</option><option value="message">Message · reply requested</option><option value="question">Question · needs an answer</option></select><button type="submit" class="send-button" aria-label="Send">${icon('send')}</button></div><small id="compose-hint">Notices keep everyone in the loop. No reply needed.</small></form></section></div><section class="activity-section"><div class="section-title"><h2>Recent activity</h2><span>Live across your workspace</span></div><div id="activity"></div></section>`;
 }
-function channelOptions() { return `<optgroup label="Group rooms">${state.groups.map(g => `<option value="${g.id}" ${channel === g.id ? 'selected' : ''}># ${e(g.name)}</option>`).join('')}</optgroup><optgroup label="Direct messages"><option value="human" ${channel === 'human' ? 'selected' : ''}>Host inbox</option>${state.agents.map(a => `<option value="${a.id}" ${channel === a.id ? 'selected' : ''}>${e(a.name)}</option>`).join('')}${state.devices.filter(d => d.id !== state.viewer.id).map(d => `<option value="${d.id}" ${channel === d.id ? 'selected' : ''}>${e(d.name)} operator</option>`).join('')}</optgroup>`; }
+function channelOptions() { return `<optgroup label="Group rooms">${state.groups.map(g => `<option value="${g.id}" ${channel === g.id ? 'selected' : ''}># ${e(g.name)}</option>`).join('')}</optgroup><optgroup label="Direct messages"><option value="human" ${channel === 'human' ? 'selected' : ''}>Human (host)</option>${state.agents.map(a => `<option value="${a.id}" ${channel === a.id ? 'selected' : ''}>${e(a.name)}</option>`).join('')}${state.devices.filter(d => d.id !== state.viewer.id).map(d => `<option value="${d.id}" ${channel === d.id ? 'selected' : ''}>${e(d.name)} operator</option>`).join('')}</optgroup>`; }
+function notificationButton() {
+  const on = localStorage.getItem('relaydeck-notify') === 'on';
+  return `<button class="icon-button" data-action="notify" aria-label="${on ? 'Notifications on' : 'Get you-have-mail alerts'}" title="${on ? 'Notifications on' : 'Get "you have mail" alerts when an agent needs you'}">${icon(on ? 'bell-ring' : 'bell-off')}</button>`;
+}
+const seenMessages = new Set(); let mailBaseline = false;
+function mailWatch() {
+  if (!state || !Array.isArray(state.messages)) return;
+  const fresh = state.messages.filter(m => !seenMessages.has(m.id));
+  for (const m of fresh) seenMessages.add(m.id);
+  if (!mailBaseline) { mailBaseline = true; return; }
+  for (const m of fresh) if (!m.groupId && m.recipients.includes('human') && !m.readBy.includes('human')) mailAlert(m);
+}
+function mailAlert(m) {
+  const summary = m.body.replace(/\s+/g, ' ').slice(0, 110);
+  toast(`yo, you have mail — ${m.fromName}: ${summary}`);
+  if ('Notification' in window && localStorage.getItem('relaydeck-notify') === 'on' && Notification.permission === 'granted') {
+    try { new Notification('yo, you have mail — Relaydeck', { body: `${m.fromName}: ${summary}` }); } catch {}
+  }
+}
+function pinsPanel() {
+  const pins = state.pinned || [];
+  const list = pins.length ? `<div class="pins-list" role="region" aria-label="Pinned notes">${pins.map(p => `<div class="pin-row"><span class="pin-icon">${icon('pin')}</span><div><p>${e(p.body)}</p><small>${e(p.byName)} · ${time(p.at)}</small></div>${state.viewer.role === 'admin' ? `<button class="text-button" data-unpin="${p.id}" title="Unpin">Unpin</button>` : ''}</div>`).join('')}</div>` : `<div class="pins-empty">${icon('pin')}<span>Pinned notes stay in every agent's context. Pin a standing order below.</span></div>`;
+  const form = state.viewer.role === 'admin' ? `<form class="pin-form"><input name="body" maxlength="2000" placeholder="Pin a note for all agents…" required/><button class="small-button" type="submit">Pin</button></form>` : '';
+  return list + form;
+}
+function wirePinForm(form) { form.onsubmit = async ev => { ev.preventDefault(); try { await tool('pin', { body: form.body.value }); form.body.value = ''; toast('Pinned — every agent sees it.'); } catch (err) { toast(err.message, true); } }; }
 function messages() {
   const box = document.querySelector('#messages'); if (!box) return;
   const group = state.groups.some(g => g.id === channel);
   const items = state.messages.filter(m => group ? m.groupId === channel : !m.groupId && (m.from === channel || m.to === channel));
   const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  box.innerHTML = items.length ? items.map(m => `<article class="message ${m.from === state.viewer.id ? 'own' : ''}"><div class="message-heading"><span class="mini-avatar">${e(m.fromName.slice(0, 1))}</span><strong>${e(m.fromName)}</strong><time>${time(m.at)}</time></div><p>${e(m.body)}</p><div class="message-meta">${m.groupId ? icon('radio') + 'Notice' : `${m.type === 'message' ? icon('message-square') : icon('bell')} To ${e(name(m.to))}`}${m.type === 'message' ? `<span class="answer-tag ${m.answeredAt ? 'answered' : ''}">${m.answeredAt ? 'Answered' : 'Unanswered'}</span>` : ''}${m.recipients.includes(state.viewer.id) && m.from !== state.viewer.id ? `<button class="text-button" data-reply="${m.id}">Reply</button>` : ''}</div></article>`).join('') : `<div class="conversation-empty">${icon('radio')}<h3>${group ? 'The room is open.' : 'Start a conversation.'}</h3><p>${group ? 'Send a notice to share progress, a discovery, or a change of plan.' : 'Messages request a reply. Notices simply share an update.'}</p></div>`;
+  box.innerHTML = items.length ? items.map(m => `<article class="message ${m.from === state.viewer.id ? 'own' : ''}"><div class="message-heading"><span class="mini-avatar">${e(m.fromName.slice(0, 1))}</span><strong>${e(m.fromName)}</strong><time>${time(m.at)}</time></div><p>${e(m.body)}</p><div class="message-meta">${m.groupId ? icon('radio') + 'Notice' : `${m.type === 'message' ? icon('message-square') : m.type === 'question' ? icon('circle-help') : icon('bell')} To ${e(name(m.to))}`}${['message', 'question'].includes(m.type) ? `<span class="answer-tag ${m.answeredAt ? 'answered' : ''}">${m.answeredAt ? 'Answered' : m.type === 'question' ? 'Needs answer' : 'Unanswered'}</span>` : ''}${m.recipients.includes(state.viewer.id) && m.from !== state.viewer.id ? `<button class="text-button" data-reply="${m.id}">Reply</button>` : ''}</div></article>`).join('') : `<div class="conversation-empty">${icon('radio')}<h3>${group ? 'The room is open.' : 'Start a conversation.'}</h3><p>${group ? 'Send a notice to share progress, a discovery, or a change of plan.' : 'Messages request a reply. Notices simply share an update.'}</p></div>`;
   if (nearBottom || !box.dataset.rendered) box.scrollTop = box.scrollHeight; box.dataset.rendered = 'true';
-  const kind = document.querySelector('[name=kind]'); kind.querySelector('[value=message]').disabled = group; if (group) kind.value = 'notice';
+  const kind = document.querySelector('[name=kind]'); kind.querySelector('[value=message]').disabled = group; kind.querySelector('[value=question]').disabled = group; if (group) kind.value = 'notice';
 }
 function activity() {
   const el = document.querySelector('#activity'); if (!el) return;
@@ -108,7 +134,7 @@ function syncPage() {
   const eligible = state.devices.filter(d => d.online && (state.viewer.role === 'admin' || d.id === state.viewer.id));
   return `${header('Repository sync', 'Keep devices aligned through Forgejo or Gitea.')}<div class="sync-layout"><section class="surface"><div class="section-title"><h2>${icon('git-branch')} Shared repository</h2><span>Forgejo / Gitea</span></div><form id="sync-form">${field('Device', `<select name="deviceId" required>${eligible.map(d => `<option value="${d.id}">${e(d.name)}</option>`).join('')}</select>`)}${field('Repository directory', `<input name="cwd" required value="${e(eligible[0]?.root || '')}"/>`, 'Use an existing Git checkout inside this device’s workspace.')}${field('Forgejo / Gitea repository URL', '<input name="url" type="url" placeholder="https://git.example.com/team/project.git"/>', 'Credentials come from the device’s Git credential helper.')}<div class="form-actions"><button name="action" value="configure" class="primary">Save remote</button><button name="action" value="status" class="secondary">Check status</button></div><div class="sync-buttons"><button name="action" value="pull" class="secondary">Pull changes</button><button name="action" value="push" class="secondary">Push commits</button></div></form><pre id="sync-result" class="sync-result" aria-live="polite">Select a checkout to inspect its sync status.</pre></section><aside class="sync-explainer">${icon('git-branch')}<h2>One project.<br>Every device.</h2><p>Each device has a local checkout. Relaydeck connects them through a Forgejo or Gitea remote named <code>relaydeck</code>.</p><p>Pulls fast-forward only. Pushes send committed changes. Local edits and merge conflicts stay visible for you to resolve.</p><p class="quiet">Directory paths can differ across devices. Pair the corresponding checkout on each machine.</p></aside></div>`;
 }
-const descriptions = { rooms: 'Discover available chat rooms.', room_history: 'Read recent conversation in a chat room.', agents: 'Discover agents, their harnesses, and current tasks.', task: 'Announce what an agent is working on.', message: 'Send direct messages that request a response.', notice: 'Send updates without requesting a response.', inbox: 'Receive messages through the harness tool bridge.', group_notice: 'Broadcast notices to a shared room.', council: 'Ask other agents for their recommendations.', activity: 'Report tool calls and progress to the workspace.', sync: 'Check, pull, and push through Forgejo or Gitea.' };
+const descriptions = { rooms: 'Discover available chat rooms.', room_history: 'Read recent conversation in a chat room.', agents: 'Discover agents, their harnesses, and current tasks.', task: 'Announce what an agent is working on.', message: 'Send direct messages that request a response.', notice: 'Send updates without requesting a response.', question: 'Ask a question that stays "Needs answer" until the recipient replies.', inbox: 'Receive messages through the harness tool bridge.', group_notice: 'Broadcast notices to a shared room.', council: 'Ask other agents for their recommendations.', activity: 'Report tool calls and progress to the workspace.', sync: 'Check, pull, and push through Forgejo or Gitea.', pin: 'Pin a standing note into every agent context.', unpin: 'Remove a pinned note by id.', pins: 'List pinned notes.' };
 function settings() { return `${header('Tool controls', 'Decide which capabilities your team can use.')}<div class="info-banner">${icon('shield-check')}<div><strong>Enforced by the host</strong><p>Disabled tools are blocked for all agents and clients. Connected MCP bridges update their tool lists automatically.</p></div></div><div class="tool-list">${Object.entries(state.settings).map(([key, enabled]) => `<div class="tool-row"><span class="tool-icon">${icon(key === 'sync' ? 'git-branch' : key === 'council' ? 'users' : 'command')}</span><div><h3>${e(key.replaceAll('_', ' '))}</h3><p>${descriptions[key]}</p></div><label class="switch"><input type="checkbox" data-tool="${key}" ${enabled ? 'checked' : ''} ${state.viewer.role !== 'admin' ? 'disabled' : ''} aria-label="Enable ${key}"/><span></span></label></div>`).join('')}</div>${state.viewer.role !== 'admin' ? '<p class="quiet">Only the host can change tool availability.</p>' : ''}`; }
 function teardownTerminal() { resizeObserver?.disconnect(); terminal?.dispose(); terminal = undefined; }
 function render() {
@@ -116,14 +142,14 @@ function render() {
   document.querySelector('#content').innerHTML = ({ workspace, devices, councils, sync: syncPage, settings })[page]();
   if (page === 'workspace') {
     const picker = document.querySelector('#agent-picker'); if (picker) picker.onchange = ev => { selected = ev.target.value; render(); };
-    messages(); activity(); const form = document.querySelector('#compose'); form.body.value = drafts[channel] || '';
+    messages(); activity(); const pinForm = document.querySelector('#pins-panel form'); if (pinForm) wirePinForm(pinForm); const form = document.querySelector('#compose'); form.body.value = drafts[channel] || '';
     form.body.oninput = () => { drafts[channel] = form.body.value; };
     form.onsubmit = async ev => { ev.preventDefault(); const submit = form.querySelector('button'); submit.disabled = true; try {
       const group = state.groups.some(g => g.id === channel), kind = group ? 'group_notice' : form.kind.value;
       await tool(kind, { body: form.body.value, ...(group ? { groupId: channel } : { to: channel }) }); form.body.value = ''; drafts[channel] = ''; toast('Sent to the conversation.');
     } catch (err) { toast(err.message, true); } finally { submit.disabled = false; } };
     document.querySelector('#channel').onchange = ev => { channel = ev.target.value; form.body.value = drafts[channel] || ''; delete document.querySelector('#messages').dataset.rendered; messages(); paintIcons(); };
-    form.kind.onchange = () => { document.querySelector('#compose-hint').textContent = form.kind.value === 'message' ? 'Stays unanswered until the recipient sends a message or notice back.' : 'Notices keep everyone in the loop. No reply needed.'; };
+    form.kind.onchange = () => { const k = form.kind.value; document.querySelector('#compose-hint').textContent = k === 'message' ? 'Stays unanswered until the recipient sends a message or notice back.' : k === 'question' ? 'A question stays "Needs answer" until they reply — the human sees it as mail.' : 'Notices keep everyone in the loop. No reply needed.'; };
     if (agent()) mountTerminal();
   }
   if (page === 'sync') document.querySelector('#sync-form').onsubmit = async ev => {
@@ -143,11 +169,13 @@ function mountTerminal() {
 function update(next) {
   const previous = agent(); state = next;
   if (!document.querySelector('.shell')) { selected ||= state.agents[0]?.id; skeleton(); return; }
-  roster();
+  roster(); mailWatch();
   if (page === 'workspace') {
     if (!selected && state.agents.length) { selected = state.agents[0].id; render(); return; }
     document.querySelector('#team-strip').innerHTML = teamStrip();
-    document.querySelector('#channel').innerHTML = channelOptions(); messages(); activity();
+    document.querySelector('#channel').innerHTML = channelOptions();
+    const pinsEl = document.querySelector('#pins-panel'); if (pinsEl) { pinsEl.innerHTML = pinsPanel(); const pf = pinsEl.querySelector('form'); if (pf) wirePinForm(pf); }
+    messages(); activity();
     const a = agent(); document.querySelector('#task-text').textContent = a?.task || 'No task announced'; document.querySelector('#process-error').textContent = a?.error || '';
     if (a && previous?.status !== a.status) document.querySelector('#terminal-actions').innerHTML = `${agentActions(a)}`;
   } else if (page !== 'sync') render();
@@ -190,6 +218,19 @@ const actions = {
   },
   async 'copy-skill'() { await copyText(document.querySelector('#agent-skill').textContent); toast('Agent instructions copied.'); },
   theme() { window.RelaydeckTheme.set(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); },
+  async notify() {
+    if (!('Notification' in window)) return toast('This browser does not support notifications. Mail also appears here as a toast.', true);
+    let permission = Notification.permission;
+    if (permission === 'default') permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      localStorage.setItem('relaydeck-notify', 'on');
+      toast('On: you will get a "you have mail" alert when an agent needs you.');
+      const el = document.querySelector('[data-action=notify]'); if (el) { el.setAttribute('aria-label', 'Notifications on'); el.setAttribute('title', 'Notifications on'); el.innerHTML = icon('bell-ring'); paintIcons(); }
+    } else {
+      localStorage.setItem('relaydeck-notify', 'off');
+      toast('Notifications are blocked in this browser. Enable them in site settings to get "you have mail" alerts.', true);
+    }
+  },
   launch: () => launch(), close: () => dialog.close(),
   async logout() { await api('/logout', {}); loggedOut = true; ws?.close(); teardownTerminal(); state = null; login(); },
   async stop() { await api(`/agents/${selected}/stop`, {}); toast('Stop requested.'); },
@@ -217,7 +258,7 @@ const actions = {
   help() { modal('How the workspace fits together', `<div class="guide-step">${icon('network')}<div><h3>One host coordinates the team</h3><p>It stores messages, task state, tool controls, and activity. Run it with or without a browser GUI.</p></div></div><div class="guide-step">${icon('laptop')}<div><h3>Each device runs its own harnesses</h3><p>Connect a client from Devices. Launch Hermes, OpenCode, or another installed executable in an embedded terminal.</p></div></div><div class="guide-step">${icon('message-square')}<div><h3>The bridge makes agents teammates</h3><p>Agents receive the room skill on startup for supported harnesses and can use the CLI bridge immediately. Agent skill shows the instructions; Connect tools optionally adds MCP. Messages arrive in tool results. A reply clears the unanswered tag; reading alone does not.</p></div></div><div class="form-actions">${button('close', 'Got it', '', 'primary')}</div>`); },
 };
 document.addEventListener('click', async event => {
-  const action = event.target.closest('[data-action]'), nav = event.target.closest('[data-page]'), row = event.target.closest('[data-agent]'), launchDevice = event.target.closest('[data-launch-device]'), regenerateDevice = event.target.closest('[data-regenerate-device]'), removeDevice = event.target.closest('[data-remove-device]'), reply = event.target.closest('[data-reply]');
+  const action = event.target.closest('[data-action]'), nav = event.target.closest('[data-page]'), row = event.target.closest('[data-agent]'), launchDevice = event.target.closest('[data-launch-device]'), regenerateDevice = event.target.closest('[data-regenerate-device]'), removeDevice = event.target.closest('[data-remove-device]'), unpin = event.target.closest('[data-unpin]'), reply = event.target.closest('[data-reply]');
   try {
     if (action) { event.preventDefault(); await actions[action.dataset.action]?.(); }
     else if (nav) { page = nav.dataset.page; render(); }
@@ -235,6 +276,7 @@ document.addEventListener('click', async event => {
       if (!device || !confirm(`Remove ${device.name}? Its agents and device key will be revoked.`)) return;
       await api(`/devices/${device.id}`, undefined, 'DELETE'); state = await api('/state'); render(); toast(`${device.name} was removed.`);
     }
+    else if (unpin) { await tool('unpin', { pinId: unpin.dataset.unpin }); toast('Pinned note removed.'); }
     else if (reply) { const original = state.messages.find(m => m.id === reply.dataset.reply); modal(`Reply to ${original.fromName}`, `${field('Your response', '<textarea name="body" rows="4" required></textarea>')}<div class="form-actions"><button class="primary" type="submit">Send reply</button></div>`, async data => { await tool('notice', { to: original.from, replyTo: original.id, body: data.get('body') }); dialog.close(); }); }
   } catch (err) { toast(err.message, true); }
 });

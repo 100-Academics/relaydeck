@@ -38,12 +38,12 @@ export async function startRunner({ server, token, root, onReady = () => {}, log
   };
   const send = message => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); };
   const status = (agentId, state, error, exitCode) => send({ type: 'status', agentId, status: state, error, exitCode });
-  async function launch({ agent, token: agentToken }) {
+  async function launch({ agent, token: agentToken, pinned }) {
     if (processes.has(agent.id)) return;
     let sessionDirectory;
     try {
       const cwd = await insideRoot(root, agent.cwd);
-      const instructions = await agentInstructions(agent);
+      const instructions = await agentInstructions(agent, pinned);
       sessionDirectory = await mkdtemp(path.join(os.tmpdir(), 'relaydeck-agent-'));
       const instructionsPath = path.join(sessionDirectory, 'SKILL.md');
       await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600 });
