@@ -11,8 +11,8 @@ export const equal = (a, b) => {
   const left = Buffer.from(a), right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 };
-export const tools = ['agents', 'rooms', 'room_history', 'task', 'message', 'notice', 'question', 'inbox', 'group_notice', 'council', 'activity', 'sync', 'pin', 'unpin', 'pins'];
-export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
+export const tools = ['agents', 'rooms', 'room_history', 'task', 'assign', 'message', 'notice', 'question', 'inbox', 'group_notice', 'council', 'situation', 'activity', 'sync', 'pin', 'unpin', 'pins'];
+export const agentRoles = ['worker', 'arbiter', 'compiler', 'secret'];export function fail(condition, message, status = 400) { if (!condition) throw Object.assign(new Error(message), { status }); }
 export function str(value, label, max = 10000) { fail(typeof value === 'string' && value.trim().length > 0 && value.length <= max, `${label} is required (up to ${max} characters).`); return value.trim(); }
 
 export class Store {
@@ -109,15 +109,14 @@ export class Store {
     fail(input.onboarding === undefined || ['auto', 'manual'].includes(input.onboarding), 'Choose automatic or manual room instructions.');
     fail(input.startupInstructions === undefined || typeof input.startupInstructions === 'string' && input.startupInstructions.length <= 12000, 'Startup instructions must be text up to 12,000 characters.');
     fail(input.delivery === undefined || ['inbox', 'terminal'].includes(input.delivery), 'Choose a valid message delivery mode.');
+    fail(input.role === undefined || input.role === '' || agentRoles.includes(input.role), `Choose a valid role: ${agentRoles.join(', ')}.`);
     fail(input.stallAfterSec === undefined || input.stallAfterSec === '' || (Number.isInteger(input.stallAfterSec) && input.stallAfterSec >= 0), 'Stall threshold must be whole seconds (0 = per-harness default).');
     fail(input.killAfterSec === undefined || input.killAfterSec === '' || (Number.isInteger(input.killAfterSec) && input.killAfterSec >= 0), 'Hard timeout must be whole seconds (0 = off).');
-    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0 };
-  }
+    return { name: str(input.name, 'Agent name', 80), harness: str(input.harness, 'Harness', 80), command: str(input.command, 'Command', 1024), args: [...input.args], cwd: str(input.cwd, 'Working directory', 2000), delivery: input.delivery || 'inbox', onboarding: input.onboarding || 'auto', startupInstructions: input.startupInstructions || '', role: input.role || 'worker', stallAfterSec: input.stallAfterSec || 0, killAfterSec: input.killAfterSec || 0 };  }
   updateAgent(actor, agentId, input) {
     const a = this.data.agents.find(a => a.id === agentId);
     fail(a, 'Agent not found.', 404); fail(this.canControl(actor, a), 'You can only control agents on your own device.', 403);
-    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'stallAfterSec', 'killAfterSec'];
-    fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
+    const allowed = ['name', 'harness', 'command', 'args', 'cwd', 'delivery', 'onboarding', 'startupInstructions', 'role', 'stallAfterSec', 'killAfterSec'];    fail(input && Object.keys(input).every(k => allowed.includes(k)), 'Only startup settings can be edited.');
     const next = this.startup({ ...a, ...input });
     fail(next.cwd === a.cwd || ['stopped', 'error'].includes(a.status), 'Stop the agent before changing its working directory.');
     Object.assign(a, next);
@@ -125,6 +124,14 @@ export class Store {
     return a;
   }
   unread(agentId) { return this.data.messages.filter(m => m.recipients.includes(agentId) && !m.readBy.includes(agentId)); }
+  // Secret agents send as the host (their control CLIs are indistinguishable
+  // from the real human). The record keeps the real sender for routing; only
+  // the display name changes, and the flag is hidden from non-host viewers.
+  viewMessage(actor, m) {
+    const out = { ...m };
+    if (actor.role !== 'admin' && out.secret) { out.fromName = 'Human (host)'; delete out.secret; }
+    return out;
+  }
   send(actor, input) {
     const type = input.type === 'notice' ? 'notice' : input.type === 'question' ? 'question' : 'message';
     fail(input.type === undefined || ['message', 'notice', 'question'].includes(input.type), 'Choose message, notice, or question.');
@@ -145,12 +152,14 @@ export class Store {
     if (input.replyTo) {
       const original = this.data.messages.find(m => m.id === input.replyTo);
       fail(original && original.recipients.includes(actor.id), 'You can only reply to messages addressed to you.');
+      if (original.secret && recipients.includes('human') && !recipients.includes(original.from)) recipients.push(original.from);
       fail(recipients.includes(original.from), 'A reply must go to the original sender.');
       councilId = original.councilId;
     }
     if (!input.groupId && !councilId) councilId = this.data.messages.findLast(m => m.councilId && m.to === actor.id && recipients.includes(m.from) && !m.answeredAt)?.councilId || null;
     const message = { id: id(), from: actor.id, fromName: actor.name, to: input.to || null, groupId: input.groupId || null,
       type, body, recipients, readBy: [], answeredAt: null, replyTo: input.replyTo || null, councilId: input.councilId || councilId, at: new Date().toISOString() };
+    if (actor.role === 'agent' && this.data.agents.find(a => a.id === actor.id)?.role === 'secret') { message.fromName = 'Human (host)'; message.secret = true; }
     if (!input.groupId) for (const m of this.data.messages) {
       if ((m.type === 'message' || m.type === 'question') && !m.answeredAt && m.recipients.includes(actor.id) && recipients.includes(m.from) && !m.groupId) m.answeredAt = message.at;
     }
@@ -162,7 +171,7 @@ export class Store {
     fail(tools.includes(name), 'Unknown tool.', 404);
     fail(this.data.settings[name], `The host has disabled ${name}.`, 403);
     let result;
-    if (name === 'agents') result = this.snapshot(actor).agents;
+    if (name === 'agents') result = this.snapshot(actor).agents.filter(a => a.id === actor.id || actor.role === 'admin' || a.role !== 'secret');
     else if (name === 'rooms') result = this.data.groups.filter(g => actor.role !== 'agent' || !g.members.length || g.members.includes(actor.id));
     else if (name === 'room_history') {
       const g = this.data.groups.find(g => g.id === (input.groupId || 'team'));
@@ -170,9 +179,18 @@ export class Store {
       fail(actor.role !== 'agent' || !g.members.length || g.members.includes(actor.id), 'You are not a member of this group.', 403);
       const limit = input.limit ?? 30;
       fail(Number.isInteger(limit) && limit >= 1 && limit <= 100, 'History limit must be between 1 and 100.');
-      result = this.data.messages.filter(m => m.groupId === g.id).slice(-limit);
+      result = this.data.messages.filter(m => m.groupId === g.id).slice(-limit).map(m => this.viewMessage(actor, m));
     }
-    else if (name === 'task') {
+    else if (name === 'assign') {
+      const self = this.data.agents.find(a => a.id === actor.id);
+      fail(actor.role === 'agent' && self?.role === 'arbiter', 'Only the arbiter can assign tasks to other agents.', 403);
+      const target = this.data.agents.find(a => a.id === input.to);
+      fail(target, 'Agent not found.', 404);
+      fail(target.id !== actor.id, 'Use the task tool for your own task.');
+      target.task = str(input.task, 'Task', 2000);
+      this.activity(actor.id, 'assign', `${self.name} assigned ${target.name}: ${target.task}`);
+      result = { assigned: target.id, task: target.task };
+    } else if (name === 'task') {
       const a = this.data.agents.find(a => a.id === (actor.role === 'agent' ? actor.id : input.agentId));
       fail(a, 'Agent not found.', 404); fail(actor.role === 'agent' || this.canControl(actor, a), 'Not allowed.', 403);
       a.task = typeof input.task === 'string' ? input.task.slice(0, 2000) : ''; result = { task: a.task };
@@ -193,8 +211,16 @@ export class Store {
       result = this.data.pinned;
     } else if (name === 'pins') result = this.data.pinned;
     else if (name === 'inbox') {
-      result = [...this.unread(actor.id)];
+      result = this.unread(actor.id).map(m => this.viewMessage(actor, m));
       if (input.markRead !== false) for (const m of result) m.readBy.push(actor.id);
+    } else if (name === 'situation') {
+      const visible = this.data.agents.filter(a => a.id === actor.id || actor.role === 'admin' || a.role !== 'secret');
+      result = {
+        agents: visible.map(a => ({ name: a.name, role: a.role, status: a.status, task: a.task || null })),
+        unanswered: this.data.messages.filter(m => m.type === 'message' && !m.answeredAt).map(m => this.viewMessage(actor, m)),
+        teamRoom: this.data.messages.filter(m => m.groupId === 'team').slice(-20).map(m => this.viewMessage(actor, m)),
+        recentActivity: this.data.activity.slice(-30),
+      };
     } else if (name === 'council') {
       const question = str(input.question, 'Council question', 20000);
       fail(input.agentIds === undefined || Array.isArray(input.agentIds) && input.agentIds.every(v => this.data.agents.some(a => a.id === v)), 'Choose valid council participants.');
@@ -210,8 +236,7 @@ export class Store {
     this.save();
     // Every agent tool response carries new messages into its model context,
     // and pinned notes stay in effect for the whole session.
-    const inbox = actor.role === 'agent' && !['inbox', 'room_history'].includes(name) && this.data.settings.inbox ? [...this.unread(actor.id)] : [];
-    for (const m of inbox) m.readBy.push(actor.id);
+    const inbox = actor.role === 'agent' && !['inbox', 'room_history', 'situation'].includes(name) && this.data.settings.inbox ? this.unread(actor.id).map(m => this.viewMessage(actor, m)) : [];    for (const m of inbox) m.readBy.push(actor.id);
     const pinned = actor.role === 'agent' && this.data.settings.pins ? this.data.pinned : [];
     this.save(); return { result, inbox, pinned };
   }

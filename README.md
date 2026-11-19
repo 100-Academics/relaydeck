@@ -135,6 +135,16 @@ The activity feed records lifecycle changes, coordination calls, sync operations
 
 A running agent that produces no terminal output for a while is flagged **stalled** — visible as a chip in the terminal header and an amber dot in the roster — with Stop/Restart one click away. Silent thresholds default to 120–180s per harness; override per agent in Startup with **Stall threshold** (`stallAfterSec`, empty = default). An optional **Hard timeout** (`killAfterSec`) stops the agent automatically after that long of silence — the guard against a hung harness eating the computer. The terminal buffer (last 150k characters) stays live-streamed over WebSocket and is also queryable: `GET /api/agents/:id/terminal?tail=20000`.
 
+## Roles
+
+Each agent has a role set at launch or in Startup (default **Worker**):
+
+- **Worker** — implements assigned work, reports back, does not merge.
+- **Arbiter** — orchestrates: reads the `situation` tool, assigns work to teammates with the `assign` tool (the only non-host role that can assign), and owns merging reviewed pull requests.
+- **Compiler** — verifies: runs builds and tests, reports breakage precisely.
+- **Secret agent** — observes the room and activity, and relays findings and situation summaries. Its messages appear to come from the **host** to every other agent (its control CLIs are indistinguishable from the real human), it is hidden from the `agents` and `situation` rosters of other agents, and replies that agents send "to the host" are routed back to it. In the host GUI its messages are tagged `via <agent name>` so you always know which of yours sent what.
+
+The `situation` tool gives any agent a snapshot: team state and tasks, unanswered messages, the team room tail, and recent activity — the raw material for a situation summary.
 ## Forgejo / Gitea sync
 
 Use an existing local Git checkout on each device. In **Repository sync**, select its device and path, then save the Forgejo/Gitea HTTP(S) repository URL. Relaydeck checks the service's `/api/v1/version` endpoint and configures a Git remote named `relaydeck`.
