@@ -103,7 +103,7 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
     - An agent posts a question → the run can end (or the agent keeps working); the question appears in the GUI as a pending card.
     - The answer arrives as an inbox event; a new run resumes the saved session with the answer.
     - While a question is pending, the agent continues to process other inbox events — it is never blocked.
-  - **Browser notifications:** Web Notifications API for the human when: a question is pending, an agent mentions the human, an agent finishes a task or errors. Secure-context constraint: `http://127.0.0.1` / `localhost` is fine, but a LAN `http://HOST:4317` is *not* a secure context, so notifications (and PWA install) require the HTTPS reverse proxy that the README already prescribes for remote access.
+  - **Browser notifications:** Web Notifications API for the human when: a question is pending, an agent mentions the human, an agent finishes a task or errors. **HTTP stays fully functional** — notifications and PWA install are the *only* features that need a secure context: `http://127.0.0.1` / `localhost` qualifies, a LAN `http://HOST:4317` does not, and the fix is the optional HTTPS reverse proxy (a self-signed cert via step-ca/ACME is fine — this is LAN-only, no domain required). Over plain HTTP the UI detects the missing secure context and hides the notification affordances instead of failing.
 - Acceptance: a pending question survives a host restart; answering it resumes the session; the human gets a browser notification without the tab focused.
 
 ## 8. Memory & artifacts — P1
@@ -142,11 +142,33 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
   - **Editing existing devices:** rename and reassign after creation (key regeneration is shipped; renaming is new).
 - Acceptance: every pane that shows agent output also shows its device; a renamed device keeps working without re-pairing.
 
-## 11. A2A (agent-to-agent protocol) — P2
+## 11. A2A (agent-to-agent protocol) — P1 (researched 2026-11-19)
 
-> "look into a2a (agent to agent protocal)"
+> "look into a2a (agent to agent protocal)" — host follow-up: "look up the A2A protocal since I think it could be helpful in communication."
 
-- Spike: map the relaydeck bridge tools onto the [A2A protocol](https://a2a-protocol.org) (agent cards, tasks) so external A2A agents can join the same inbox. Decision point D1: adopt A2A as an additional transport behind the existing store, or stop at mapping.
+Research (from the [A2A spec v1.0](https://a2a-protocol.org/latest/specification/), Linux Foundation):
+- A2A is the open agent↔agent protocol — MCP connects agents to tools, A2A connects agents to agents; the project's own guidance is "use both." Three bindings: **JSON-RPC 2.0 over HTTP(S) with SSE streaming** (the simplest, and relaydeck is already Express + WS), gRPC, and HTTP+JSON.
+- Core objects: **AgentCard** (self-describing manifest — identity, capabilities, skills, security schemes — published at `/.well-known/agent-card.json`), **Task** (lifecycle `submitted → working → input-required / completed / canceled / failed`, with artifacts and history), **Message** (role + Parts: text/file/data).
+- Methods: `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask` (SSE), plus **task push-notification configs** (the server POSTs to your webhook when task state changes).
+- Official SDKs for the whole relaydeck stack: `@a2a-js/sdk` (Node), `a2a-sdk` (Python), Go/Java/C#/Rust. Plus an **A2A CLI + agent skill** (`winget install a2aproject.a2acli`) that lets any coding agent discover, message, and delegate to A2A agents — the same skill+CLI pattern relaydeck already uses.
+
+Mapping to relaydeck (this is the design, not just a spike):
+
+| A2A | Relaydeck |
+|---|---|
+| AgentCard | Per-agent card served by the host: name, role (§5), harness, device, skills = bridge tools; `securitySchemes` = the agent's bearer key |
+| `SendMessage` | Inject into the agent's inbox / terminal through the existing delivery ladder (§1) |
+| Task lifecycle | The agent's run; `working` while its PTY is active (§2 active/idle) |
+| **`input-required`** | **The questions channel (§7)** — "task needs input" *is* the deferred-call pattern, made protocol-standard |
+| Push notification config | The "yo, you have mail" relay (§7) as a webhook → host relays to the human/browser |
+| `GetTask` / `ListTasks` | `task` + `activity` bridge tools, feeding the §6 queue view |
+
+Phases:
+1. **Map & expose (P1):** the host serves `/.well-known/agent-card.json` per agent and implements the JSON-RPC binding (`SendMessage`, `GetTask`, `ListTasks`, push-notification configs) over the existing Express app — via `@a2a-js/sdk` or the raw binding.
+2. **Consume (P1):** external A2A agents can message relaydeck agents through the standard, no relaydeck CLI required; the A2A CLI + skill is the turnkey client for other stacks on this machine.
+3. **A2A peers (P2):** relaydeck agents hold tasks *with* external A2A agents (delegation), tracked in the same queue view.
+
+- Acceptance: an external A2A client (the A2A CLI) sends `SendMessage` to a relaydeck agent and receives its reply as the task result; posting a question flips the task to `input-required` and a configured push webhook fires.
 
 ## 12. New harnesses: `pi` and `omp` — P1
 
@@ -166,7 +188,7 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 - Spec:
   - **Docker:** an official Dockerfile for the host (PTY workers in-container; document constraints and the `--data` volume).
   - **Container per agent:** optional mode where each agent runs in its own container with a bind-mounted workspace (the "fake directories") — the routing boundary in `README.md` (Storage and trust) becomes a real sandbox in this mode.
-  - **Desktop-style UI, PWA first:** make the workspace an installable web app (Web Install API — `<install>` element or `navigator.install()`, with `beforeinstallprompt` fallback; see the `modern-web-guidance` skill). A standalone, installable window is the "desktop feeling" with zero new runtime to maintain. Evaluate a Tauri/Electron wrapper only if the PWA falls short (native notifications on non-Chromium, global hotkeys, managing the node process).
+  - **Desktop-grade web UI (the actual ask):** the *web UI itself* should look and feel like a native desktop app, in the class of the Hermes desktop app — app chrome (sidebar rail, top bar, panels), fluid theming, no browser artifacts. That is a web-first job, not a wrapper job. PWA install (Web Install API — `<install>` / `navigator.install()`, with `beforeinstallprompt` fallback; see the `modern-web-guidance` skill) is a bonus on top, and a Tauri/Electron wrapper stays available as an option, not a prerequisite.
   - **Bandwidth slider:** a frame-rate/quality control for the terminal stream for low-bandwidth devices, with automatic degradation on high RTT.
 
 ## 14. Forgejo integration depth — P1
@@ -176,14 +198,14 @@ Reading guide: **P0** = fleet blocker, **P1** = core overhaul, **P2** = stretch.
 - PRs, issues, and reviews: read in the GUI, read/write through bridge tools; the arbiter merges PRs (§6); `sync queue` in §6.
 - Keep the client thin — upstream missing features to Forgejo rather than forking behavior.
 
-## Decision points
+## Decision points (all resolved)
 
 | # | Question | Status |
 |---|---|---|
-| D1 | A2A: full transport, or mapping spike only? | Open (default: mapping spike, §11) |
+| D1 | A2A: full transport or mapping spike? | **Resolved (researched):** adopt — expose the fleet as A2A servers + consume external A2A agents; the questions channel maps to `input-required`, "you have mail" to push-notification configs (§11) |
 | D2 | What "control CLIs" means for the secret agent | **Resolved:** send messages into an agent's inbox *as the user* — indistinguishable from the real human (§5) |
 | D3 | `pi` / `omp`: which CLIs and versions? | **Resolved:** `pi` 0.85.1 + `omp` (oh-my-pi) 18.18.3, both installed on this machine (§12) |
-| D4 | Desktop approach | **Reframed:** PWA install first (Web Install API); Tauri/Electron only if the PWA falls short (§13) |
+| D4 | Desktop approach | **Reframed:** the *web UI* goes desktop-grade (Hermes-desktop class) first; PWA install bonus; wrapper optional (§13) |
 | D5 | "edit existing gc" | **Resolved:** group chats — adding agents to existing rooms (§10) |
 
 ## 15. Web UI standard (applies to every UI item in this spec)
@@ -194,6 +216,17 @@ All HTML/CSS/client-side JS work follows the **modern-web-guidance** skill (`D:\
 - `install-web-app` — PWA install (§13): `<install>` / `navigator.install()` with the `beforeinstallprompt` fallback; manifest with a stable `id`.
 - `local-network-access` — GUI on LAN/loopback: LNA permission gating applies to cross-origin requests into more-private address spaces (a same-origin LAN GUI is unaffected); the secure-context requirement is what forces HTTPS for LAN notifications/PWA.
 - `dialog` / `light-dismiss-a-dialog` — question cards and confirmations (§6, §7).
+
+## 16. Networking & security posture — P1
+
+> Host: "security wise theres no port forwarding, the way me and the boys did it was tailscale."
+
+- **Transport ladder, in preference order:**
+  1. **Loopback** (default) — single machine, `http://127.0.0.1:4317`.
+  2. **Tailscale mesh (recommended for multi-device)** — no port forwarding, no public exposure, stable per-device identity on the mesh. This is how the reference fleet runs it; document it as the recommended way to connect devices.
+  3. **LAN + optional HTTPS reverse proxy** — plain `http://` on a trusted LAN is fine for all core features; only browser notifications and PWA install additionally need the secure context (self-signed via step-ca/ACME is acceptable).
+- **Explicitly discouraged:** port-forwarding the relaydeck port to the internet — an unencrypted terminal control service should not be public (already in README "Storage and trust"); Tailscale removes the need entirely.
+- Full threat model, key hierarchy, and token handling live in [`SECURITY.md`](../SECURITY.md) (new in this PR), referenced from the README.
 
 ## Recently shipped — verify, don't rebuild
 
